@@ -1,6 +1,6 @@
 # Cortexa — Development Guide
 
-How the app is put together, and the patterns to follow when extending it.
+How the app is put together, and the patterns to follow when extending it. For the system-level bird's-eye view, see `ARCHITECTURE.md`; for the AI agents specifically, see `AGENTS.md`; for the full catalog of actions, see `SKILLS.md`.
 
 ## File roles
 

@@ -86,4 +86,4 @@ PCGuard/
 - Optional: [Ollama](https://ollama.com) for the AI Agent tab
 - Optional: Docker Desktop / WSL2 (only needed if you want to use those specific cleanup features)
 
-See `DEVELOPMENT.md` for architecture details and `TESTING.md` for how to validate changes before relying on them. Contributing a change? See `CONTRIBUTING.md`. Found a security issue? See `SECURITY.md` (please don't open a public issue for it).
+See `ARCHITECTURE.md` for the system-level overview, `AGENTS.md` for what each AI agent sees and does, `SKILLS.md` for the full catalog of actions the app (and its AI) can take, `DEVELOPMENT.md` for extension patterns and gotchas, and `TESTING.md` for how to validate changes before relying on them. Contributing a change? See `CONTRIBUTING.md`. Found a security issue? See `SECURITY.md` (please don't open a public issue for it).

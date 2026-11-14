@@ -2,6 +2,14 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.7 — 2026-11-14
+
+### Added
+- `ARCHITECTURE.md` — system-level overview: the three PowerShell processes and how they share `PCGuardCore.psm1`, the data flow for a typical feature (live snapshot → persist as JSON Lines → render from persisted history → feed the matching Claude agent → watchdog keeps it going when closed), the full persistence-layer table (every file under `logs/`/`Reports/`/`config.json` and who writes it), the two AI backends, the background-job pattern, elevation, and the AI safety boundary.
+- `AGENTS.md` — every AI agent (the general Ollama-backed AI Agent tab, and the three Claude/Ollama-switchable specialists: Network Monitor, Storage Manager, Security Monitor), what each sees, what it can and can't do, the provider switch and token-limit mechanics, and an explicit note that the background watchdog is automation, not an agent.
+- `SKILLS.md` — a full catalog of every concrete action/capability in the app, tabulated by manual path, AI-triggerability, confirmation requirement, and reversibility, plus the exact whitelisted AI action vocabulary (`FreeRam`, `CleanTemp`, `StopUnwanted`, `SpeedBoost`, `ShutdownWsl`, `RestorePoint`, `EndProcess:<name>`, `OpenTab:<name>`).
+- README, DEVELOPMENT.md cross-linked to all three new docs.
+
 ## v1.6.6 — 2026-11-14
 
 ### Added
