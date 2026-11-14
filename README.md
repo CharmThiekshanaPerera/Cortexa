@@ -9,6 +9,8 @@ A local Windows system-monitoring and optimization app built in PowerShell + WPF
 - Run `PCGuard.bat` in this folder, or
 - Run directly: `powershell -ExecutionPolicy Bypass -File PCGuard-GUI.ps1`
 
+Setting this up on a machine that's never run it before (a clean PC, a VM, a copied folder)? See `SETUP.md` for the full first-time walkthrough, including Ollama/Claude setup and the background watchdog.
+
 The app requests administrator privileges via a UAC prompt on every launch (needed for ending protected processes, managing scheduled tasks/startup items, Docker/WSL cleanup, and System Restore points). If you decline the prompt, it keeps running at standard privileges with reduced functionality — a badge next to the title shows which mode you're in.
 
 **First run of `Cortexa.exe`:** Windows SmartScreen will likely show "Windows protected your PC" / "Unrecognized app" — this is expected for any unsigned executable from a new publisher, not a sign of a problem. Click **More info → Run anyway**. The `.exe` isn't code-signed (that requires a paid certificate), so this warning will appear once per machine until/unless that changes.
@@ -86,4 +88,4 @@ PCGuard/
 - Optional: [Ollama](https://ollama.com) for the AI Agent tab
 - Optional: Docker Desktop / WSL2 (only needed if you want to use those specific cleanup features)
 
-See `ARCHITECTURE.md` for the system-level overview, `AGENTS.md` for what each AI agent sees and does, `SKILLS.md` for the full catalog of actions the app (and its AI) can take, `DEVELOPMENT.md` for extension patterns and gotchas, and `TESTING.md` for how to validate changes before relying on them. Contributing a change? See `CONTRIBUTING.md`. Found a security issue? See `SECURITY.md` (please don't open a public issue for it).
+See `SETUP.md` for running this on a machine that's never seen it before, `ARCHITECTURE.md` for the system-level overview, `AGENTS.md` for what each AI agent sees and does, `SKILLS.md` for the full catalog of actions the app (and its AI) can take, `DEVELOPMENT.md` for extension patterns and gotchas, and `TESTING.md` for how to validate changes before relying on them. Contributing a change? See `CONTRIBUTING.md`. Found a security issue? See `SECURITY.md` (please don't open a public issue for it).

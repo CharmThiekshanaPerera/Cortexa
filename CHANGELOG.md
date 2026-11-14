@@ -2,6 +2,13 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.8 — 2026-11-14
+
+### Added
+- `SETUP.md` — how to run Cortexa on a machine that's never seen it before: the `.exe`-only path and the from-source path, first-run behavior, optional Ollama/Claude setup, installing the background watchdog, moving to yet another machine later, and a short troubleshooting list.
+- `config.example.json` updated with the two fields added in v1.6.5 (`ClaudeAgentsProvider`, `ClaudeMonthlyTokenLimit`) that were missing from the template.
+- README cross-linked to `SETUP.md`.
+
 ## v1.6.7 — 2026-11-14
 
 ### Added

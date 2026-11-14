@@ -11,6 +11,8 @@
     "AiModel":  "qwen2.5:3b",
     "AnthropicApiKey":  "",
     "ClaudeModel":  "claude-sonnet-5-5",
+    "ClaudeAgentsProvider":  "Claude",
+    "ClaudeMonthlyTokenLimit":  0,
     "CustomRules":  [],
     "AutoApproveActions":  []
 }
