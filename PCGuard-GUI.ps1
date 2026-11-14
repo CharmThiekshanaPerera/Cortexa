@@ -829,6 +829,23 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         </ListView>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,4">
+                    <StackPanel>
+                        <TextBlock Text="CLAUDE SECURITY MONITOR AGENT" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Sends your firewall/Defender/BitLocker status, driver errors, and listening services to Anthropic's Claude API for a vulnerability review - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. It has no access to live CVE databases - it reviews configuration risks it can actually see, not unpatched-software claims. Advisory only: never changes any setting itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnClaudeSecurityAnalyze" Content="Analyze Security (Claude)" Background="#d97757"/>
+                        </WrapPanel>
+                        <Border x:Name="ClaudeSecurityPanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+                            <TextBlock x:Name="ClaudeSecurityText" Text="" TextWrapping="Wrap"/>
+                        </Border>
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBox x:Name="ClaudeSecurityChatInput" Width="460" Tag="Ask a follow-up, e.g. 'how do I enable BitLocker?'" Margin="0,0,8,8"/>
+                            <Button x:Name="BtnClaudeSecurityChatSend" Content="Continue Conversation" Background="#d97757"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </TabItem>
 
@@ -1189,7 +1206,8 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'BtnOpenAppsFeatures','BtnAppAiDecision','BtnAppAiAskMore','AppAiPanel','AppAiText',
                  'CfgAnthropicApiKey','CfgClaudeModel','BtnSaveClaudeKey','ClaudeKeyStatusText',
                  'BtnClaudeNetworkAnalyze','ClaudeNetworkPanel','ClaudeNetworkText','ClaudeNetworkChatInput','BtnClaudeNetworkChatSend',
-                 'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText','ClaudeStorageChatInput','BtnClaudeStorageChatSend')) {
+                 'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText','ClaudeStorageChatInput','BtnClaudeStorageChatSend',
+                 'BtnClaudeSecurityAnalyze','ClaudeSecurityPanel','ClaudeSecurityText','ClaudeSecurityChatInput','BtnClaudeSecurityChatSend')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -2141,6 +2159,68 @@ function Refresh-SecurityTab {
 
 $BtnSecurityRefresh.Add_Click({ Refresh-SecurityTab })
 
+$BtnClaudeSecurityAnalyze.Add_Click({
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    if (-not $cfg.AnthropicApiKey) {
+        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section).", "PCGuard") | Out-Null
+        return
+    }
+    $ClaudeSecurityPanel.Visibility = 'Visible'
+    $ClaudeSecurityText.Text = "Asking Claude to analyze security configuration (this leaves your machine)..."
+    $BtnClaudeSecurityAnalyze.IsEnabled = $false
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    Start-AiJob -ScriptBlock {
+        param($mp, $apiKey, $model)
+        Import-Module $mp -Force
+        Invoke-ClaudeSecurityAnalysis -ApiKey $apiKey -Model $model
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel) -OnComplete {
+        param($result)
+        $BtnClaudeSecurityAnalyze.IsEnabled = $true
+        if ($result.Success) {
+            $ClaudeSecurityText.Text = $result.Response
+            $script:ClaudeSecuritySystemPrompt = $result.SystemPrompt
+            $script:ClaudeSecurityMessages = @(
+                @{ role = 'user'; content = $result.Prompt }
+                @{ role = 'assistant'; content = $result.Response }
+            )
+        } else {
+            $ClaudeSecurityText.Text = "Claude request failed: $($result.Response)"
+        }
+    }
+})
+
+$BtnClaudeSecurityChatSend.Add_Click({
+    $msg = $ClaudeSecurityChatInput.Text.Trim()
+    if (-not $msg) { return }
+    if (-not $script:ClaudeSecurityMessages -or $script:ClaudeSecurityMessages.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("Click 'Analyze Security (Claude)' first to start the conversation.", "PCGuard") | Out-Null
+        return
+    }
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $ClaudeSecurityChatInput.Text = ""
+    $script:ClaudeSecurityBaseText = $ClaudeSecurityText.Text
+    $ClaudeSecurityText.Text = "$($script:ClaudeSecurityBaseText)`n`n---`nYou: $msg`n`nClaude: thinking..."
+    $BtnClaudeSecurityChatSend.IsEnabled = $false
+    $script:ClaudeSecurityMessages += @{ role = 'user'; content = $msg }
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    $messagesSnapshot = $script:ClaudeSecurityMessages
+    $sysSnapshot = $script:ClaudeSecuritySystemPrompt
+    Start-AiJob -ScriptBlock {
+        param($mp, $apiKey, $model, $msgs, $sys)
+        Import-Module $mp -Force
+        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot) -OnComplete {
+        param($result)
+        $BtnClaudeSecurityChatSend.IsEnabled = $true
+        $reply = if ($result.Success) { $result.Response } else { "(failed: $($result.Response))" }
+        $ClaudeSecurityText.Text = "$($script:ClaudeSecurityBaseText)`n`n---`nYou: $msg`n`nClaude: $reply"
+        if ($result.Success) {
+            $script:ClaudeSecurityMessages += @{ role = 'assistant'; content = $result.Response }
+            $script:ClaudeSecurityBaseText = $ClaudeSecurityText.Text
+        }
+    }.GetNewClosure()
+})
+
 # ---------- App Usage tab ----------
 $script:AppUsageRows = @()
 
@@ -2245,6 +2325,9 @@ $script:ClaudeNetworkBaseText = ''
 $script:ClaudeStorageMessages = @()
 $script:ClaudeStorageSystemPrompt = ''
 $script:ClaudeStorageBaseText = ''
+$script:ClaudeSecurityMessages = @()
+$script:ClaudeSecuritySystemPrompt = ''
+$script:ClaudeSecurityBaseText = ''
 $ChatItems.ItemsSource = $script:AiMessages
 
 function Add-ChatMessage {

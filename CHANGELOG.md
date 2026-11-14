@@ -2,6 +2,12 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6 — 2026-11-14
+
+### Added
+- **Security Monitor Agent** (Claude, Security tab) — reviews firewall/Defender/BitLocker status, driver errors, and listening services for configuration-level vulnerabilities. Explicitly has no access to live CVE databases and is instructed never to invent specific CVE numbers - sticks to real misconfigurations visible in the data. Verified against real data: correctly identified BitLocker disabled, MySQL listening on all interfaces, and SMB/RPC/Spooler/Hyper-V exposure, all genuinely present on the test machine, with no fabricated vulnerability claims.
+- Same "Continue Conversation" multi-turn chat as the other two Claude agents. Verified with a real follow-up ("which one should I fix first?") - Claude correctly prioritized the database exposure over BitLocker with sound reasoning, and appropriately flagged its own uncertainty about firewall inbound rules rather than overclaiming.
+
 ## v1.5.2 — 2026-11-14
 
 ### Added
