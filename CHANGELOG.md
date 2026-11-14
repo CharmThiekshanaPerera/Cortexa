@@ -2,6 +2,14 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.4 — 2026-11-14
+
+### App Usage tab — Unused Apps section
+- Complements the existing "most used" view: every installed program (read from Windows' own Add/Remove Programs registry entries), cross-referenced against what Cortexa has actually tracked running — matched by **install folder path**, not fuzzy name matching (process name "chrome" vs. display name "Google Chrome" can't be reliably string-matched; comparing folders is).
+- Sorted with the biggest, never-seen-running apps first — good uninstall candidates.
+- Registry's own size estimate shown by default; "Calculate Real Sizes" recomputes the true folder size on demand (verified against real data: registry estimates are often noticeably stale — Microsoft Edge showed 2846 MB estimated vs. 1792 MB real, PowerToys 1725 MB vs. 973 MB real).
+- "Open Apps & Features" button for one-click access to Windows' own uninstaller — Cortexa doesn't attempt to drive uninstalls itself, since installer behavior varies too much per app to do safely.
+
 ## v1.3 — 2026-11-14
 
 ### New: App Usage tab

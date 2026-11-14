@@ -841,6 +841,29 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         <TextBlock x:Name="AppUsageStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,4">
+                    <StackPanel>
+                        <TextBlock Text="LEAST USED / UNUSED INSTALLED APPS" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Everything installed on this PC (from Windows' own Add/Remove Programs list), matched against what Cortexa has actually tracked running - matched by install folder, not by name. Sorted with the biggest, never-seen-running apps first: good uninstall candidates if you don't recognize or need them. &quot;Not seen running&quot; means not seen since you started tracking, not a lifetime claim." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnUnusedRefresh" Content="Refresh" Style="{StaticResource PrimaryButton}"/>
+                            <Button x:Name="BtnCalcUnusedSizes" Content="Calculate Real Sizes"/>
+                            <Button x:Name="BtnOpenAppsFeatures" Content="Open Apps &amp; Features (to uninstall)"/>
+                        </WrapPanel>
+                        <ListView x:Name="UnusedAppsList" Height="320">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="App" Width="220" DisplayMemberBinding="{Binding Name}"/>
+                                    <GridViewColumn Header="Publisher" Width="140" DisplayMemberBinding="{Binding Publisher}"/>
+                                    <GridViewColumn Header="Status" Width="220" DisplayMemberBinding="{Binding Status}"/>
+                                    <GridViewColumn Header="Size" Width="150" DisplayMemberBinding="{Binding Size}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock x:Name="UnusedAppsStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </TabItem>
 
@@ -1120,7 +1143,8 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'BtnExplainAlert','AlertAiPanel','AlertAiText',
                  'RuleInput','BtnAddRule','RuleStatus','RuleList','BtnDeleteRule',
                  'ChkAutoApproveFreeRam','ChkAutoApproveCleanTemp',
-                 'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText')) {
+                 'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText',
+                 'BtnUnusedRefresh','BtnCalcUnusedSizes','BtnOpenAppsFeatures','UnusedAppsList','UnusedAppsStatusText')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -2012,6 +2036,60 @@ $BtnCalcSizes.Add_Click({
     $script:SizeCalcTimer.Start()
 })
 
+$script:UnusedAppsRows = @()
+
+function Refresh-UnusedAppsList {
+    $UnusedAppsStatusText.Text = "Reading installed programs..."
+    $script:UnusedAppsRows = @(Get-UnusedAppsSummary -RootDir $RootDir -Top 60)
+    $UnusedAppsList.ItemsSource = $null
+    $UnusedAppsList.ItemsSource = $script:UnusedAppsRows
+    $UnusedAppsStatusText.Text = "Showing $($script:UnusedAppsRows.Count) installed apps, unused/biggest first. Last refreshed $(Get-Date -Format 'HH:mm:ss')."
+}
+
+$BtnUnusedRefresh.Add_Click({ Refresh-UnusedAppsList })
+$BtnOpenAppsFeatures.Add_Click({ Start-Process "ms-settings:appsfeatures" })
+
+$script:UnusedSizeCalcJob = $null
+$script:UnusedSizeCalcTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:UnusedSizeCalcTimer.Interval = [TimeSpan]::FromSeconds(1)
+$script:UnusedSizeCalcTimer.Add_Tick({
+    if ($script:UnusedSizeCalcJob -and $script:UnusedSizeCalcJob.State -in @('Completed', 'Failed', 'Stopped')) {
+        $script:UnusedSizeCalcTimer.Stop()
+        $results = @(Receive-Job -Job $script:UnusedSizeCalcJob -ErrorAction SilentlyContinue)
+        Remove-Job -Job $script:UnusedSizeCalcJob -Force
+        $script:UnusedSizeCalcJob = $null
+
+        foreach ($r in $results) {
+            $row = $script:UnusedAppsRows | Where-Object { $_.Name -eq $r.Name } | Select-Object -First 1
+            if ($row) {
+                $row.SizeMB = $r.SizeMB
+                $row.Size = if ($null -eq $r.SizeMB) { 'Unknown' } elseif ($r.SizeMB -ge 1024) { "{0:N2} GB (real)" -f ($r.SizeMB / 1024) } else { "{0:N0} MB (real)" -f $r.SizeMB }
+            }
+        }
+        $UnusedAppsList.ItemsSource = $null
+        $UnusedAppsList.ItemsSource = $script:UnusedAppsRows
+        $UnusedAppsStatusText.Text = "Real sizes calculated: $(Get-Date -Format 'HH:mm:ss')"
+        $BtnCalcUnusedSizes.IsEnabled = $true
+    }
+})
+
+$BtnCalcUnusedSizes.Add_Click({
+    if ($script:UnusedAppsRows.Count -eq 0) { return }
+    $BtnCalcUnusedSizes.IsEnabled = $false
+    $UnusedAppsStatusText.Text = "Calculating real folder sizes (can take a while for large install folders)..."
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    $targets = $script:UnusedAppsRows | Select-Object Name, InstallLocation
+    $script:UnusedSizeCalcJob = Start-Job -ScriptBlock {
+        param($mp, $rows)
+        Import-Module $mp -Force
+        foreach ($row in $rows) {
+            $size = if ($row.InstallLocation) { Get-FolderSizeMB -Path $row.InstallLocation } else { $null }
+            [PSCustomObject]@{ Name = $row.Name; SizeMB = $size }
+        }
+    } -ArgumentList @($modelPath, $targets)
+    $script:UnusedSizeCalcTimer.Start()
+})
+
 # ---------- AI Agent tab ----------
 $script:AiMessages = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
 $script:LastSuggestedActions = @()
@@ -2486,6 +2564,7 @@ Refresh-TaskList
 Refresh-StartupList
 Refresh-SecurityTab
 Refresh-AppUsageList
+Refresh-UnusedAppsList
 Refresh-OllamaStatus | Out-Null
 Refresh-AiHistory
 Refresh-NetworkTab
