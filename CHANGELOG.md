@@ -2,6 +2,11 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.5.1 — 2026-11-14
+
+### Fixed
+- Moved the Claude Storage Manager Agent card from Disk Analysis to the **App Usage** tab, per feedback — its actual data (biggest installed apps + disk space) is the App Usage tab's content, not Disk Analysis's (folders/files/WSL/Docker). No backend change, just corrected placement.
+
 ## v1.5 — 2026-11-14
 
 ### Added — Claude (Anthropic API), optional

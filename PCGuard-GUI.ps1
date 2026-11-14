@@ -609,14 +609,6 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
 
                 <Border Style="{StaticResource Card}" Margin="0,0,0,4">
                     <StackPanel>
-                        <TextBlock Text="CLAUDE STORAGE MANAGER AGENT" Style="{StaticResource CardHeader}"/>
-                        <TextBlock Text="Sends disk free space and your biggest installed apps (with usage status) to Anthropic's Claude API for a prioritized cleanup plan - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: never deletes or uninstalls anything itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <WrapPanel Margin="0,0,0,8">
-                            <Button x:Name="BtnClaudeStorageAnalyze" Content="Analyze Storage (Claude)" Background="#d97757"/>
-                        </WrapPanel>
-                        <Border x:Name="ClaudeStoragePanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
-                            <TextBlock x:Name="ClaudeStorageText" Text="" TextWrapping="Wrap"/>
-                        </Border>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -875,6 +867,19 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         </WrapPanel>
                         <Border x:Name="AppAiPanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
                             <TextBlock x:Name="AppAiText" Text="" TextWrapping="Wrap"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,4">
+                    <StackPanel>
+                        <TextBlock Text="CLAUDE STORAGE MANAGER AGENT" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Sends disk free space and your biggest installed apps (with usage status, from the list above) to Anthropic's Claude API for a prioritized cleanup plan - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: never deletes or uninstalls anything itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnClaudeStorageAnalyze" Content="Analyze Storage (Claude)" Background="#d97757"/>
+                        </WrapPanel>
+                        <Border x:Name="ClaudeStoragePanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+                            <TextBlock x:Name="ClaudeStorageText" Text="" TextWrapping="Wrap"/>
                         </Border>
                     </StackPanel>
                 </Border>
