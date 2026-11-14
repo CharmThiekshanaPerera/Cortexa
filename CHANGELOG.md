@@ -2,6 +2,12 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.6 — 2026-11-14
+
+### Added
+- `CONTRIBUTING.md` — dev setup, the feature-adding pattern from `DEVELOPMENT.md`, the pre-commit API-key-scan step contributors should also run, and PR expectations.
+- `SECURITY.md` — private vulnerability reporting (GitHub Security tab, not a public issue), the security-relevant design decisions already in place (local-first AI, advisory-only AI actions, gitignored API key with mandatory pre-push scanning, confirm-gated destructive actions), and what's explicitly not a vulnerability.
+
 ## v1.6.5 — 2026-11-14
 
 ### Added
