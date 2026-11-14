@@ -2,6 +2,11 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.4.1 — 2026-11-14
+
+### Changed
+- App Usage tab merged into a single unified list, per feedback — one table showing every app (installed + tracked-running) together, each with a Status column ("Used - Xm total" or "Not used (installed)") and a Size column, sortable by Size / Today / Total. Previously this was two separate scrollable cards.
+
 ## v1.4 — 2026-11-14
 
 ### App Usage tab — Unused Apps section

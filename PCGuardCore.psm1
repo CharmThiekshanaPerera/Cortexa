@@ -1244,10 +1244,82 @@ function Get-UnusedAppsSummary {
     return @($rows | Sort-Object -Property @{Expression = 'TotalMinutesTracked'; Descending = $false }, @{Expression = 'SizeMB'; Descending = $true } | Select-Object -First $Top)
 }
 
+function Get-CombinedAppsSummary {
+    # The single, merged App Usage view: every installed program (from the
+    # registry) PLUS every tracked-but-not-separately-installed process (e.g.
+    # system utilities, store apps) that doesn't match an installed program,
+    # in one list. Each row carries both usage (if any) and size, so it can
+    # be sorted by either - this is the one table the GUI's App Usage tab
+    # renders; Get-AppUsageSummary and Get-UnusedAppsSummary above remain as
+    # their own narrower, independently useful building blocks.
+    param([string]$RootDir, [string]$SortBy = 'Size', [int]$Top = 60)
+
+    $installed = @(Get-InstalledPrograms | Where-Object { $_.InstallLocation })
+    $store = Get-AppUsageStore -RootDir $RootDir
+    $today = (Get-Date).ToString('yyyy-MM-dd')
+    $matchedKeys = @{}
+
+    $installedRows = foreach ($app in $installed) {
+        $normInstall = $app.InstallLocation.TrimEnd('\').ToLower()
+        $match = $null
+        $matchKey = $null
+        foreach ($key in $store.Keys) {
+            $e = $store[$key]
+            if (-not $e.ExePath) { continue }
+            $exeFolder = (Split-Path -Parent $e.ExePath).ToLower()
+            if ($exeFolder -eq $normInstall -or $exeFolder.StartsWith("$normInstall\") -or $normInstall.StartsWith("$exeFolder\")) {
+                $match = $e
+                $matchKey = $key
+                break
+            }
+        }
+        if ($matchKey) { $matchedKeys[$matchKey] = $true }
+        $totalM = if ($match) { [double]$match.TotalMinutes } else { 0.0 }
+        $todayM = if ($match -and $match.TodayDate -eq $today) { [double]$match.TodayMinutes } else { 0.0 }
+        [PSCustomObject]@{
+            Name         = $app.Name
+            Publisher    = $app.Publisher
+            Status       = if ($match) { "Used - $(Format-AppUsageMinutes -Minutes $totalM) total" } else { "Not used (installed)" }
+            TotalMinutes = $totalM
+            TodayMinutes = $todayM
+            LastSeen     = if ($match) { $match.LastSeen } else { 'Never (tracked)' }
+            SizePath     = $app.InstallLocation
+            SizeMB       = if ($app.EstimatedSizeMB) { $app.EstimatedSizeMB } else { -1 }
+            Size         = if ($app.EstimatedSizeMB) { "{0:N0} MB (est.)" -f $app.EstimatedSizeMB } else { 'Not calculated' }
+        }
+    }
+
+    $trackedOnlyRows = foreach ($key in $store.Keys) {
+        if ($matchedKeys.ContainsKey($key)) { continue }
+        $e = $store[$key]
+        $totalM = [double]$e.TotalMinutes
+        $todayM = if ($e.TodayDate -eq $today) { [double]$e.TodayMinutes } else { 0.0 }
+        [PSCustomObject]@{
+            Name         = $e.FriendlyName
+            Publisher    = $null
+            Status       = "Used - $(Format-AppUsageMinutes -Minutes $totalM) total"
+            TotalMinutes = $totalM
+            TodayMinutes = $todayM
+            LastSeen     = $e.LastSeen
+            SizePath     = if ($e.ExePath) { Split-Path -Parent $e.ExePath } else { $null }
+            SizeMB       = -1
+            Size         = 'Not calculated'
+        }
+    }
+
+    $all = @($installedRows) + @($trackedOnlyRows)
+    $sorted = switch ($SortBy) {
+        'Today' { $all | Sort-Object TodayMinutes -Descending }
+        'Total' { $all | Sort-Object TotalMinutes -Descending }
+        default { $all | Sort-Object SizeMB -Descending }
+    }
+    return @($sorted | Select-Object -First $Top)
+}
+
 function Reset-AppUsageStats {
     param([string]$RootDir)
     $path = Get-AppUsageStorePath -RootDir $RootDir
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary
