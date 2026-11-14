@@ -1202,6 +1202,60 @@ function Get-InstalledPrograms {
     return @($results | Sort-Object Name)
 }
 
+function Convert-Rot13String {
+    param([string]$Text)
+    $chars = $Text.ToCharArray()
+    for ($i = 0; $i -lt $chars.Length; $i++) {
+        $c = $chars[$i]
+        if ($c -ge 'a' -and $c -le 'z') { $chars[$i] = [char]((([int]$c - [int][char]'a' + 13) % 26) + [int][char]'a') }
+        elseif ($c -ge 'A' -and $c -le 'Z') { $chars[$i] = [char]((([int]$c - [int][char]'A' + 13) % 26) + [int][char]'A') }
+    }
+    -join $chars
+}
+
+function Get-UserAssistLastRunData {
+    # Windows records a last-run timestamp for GUI-launched apps in the
+    # UserAssist registry key, independent of whether Cortexa was running at
+    # the time - this is how "Last Seen" can be populated even for apps
+    # Cortexa has never observed. Names are ROT13-encoded; the last-run
+    # FILETIME lives at a fixed offset in the binary value (a long-documented,
+    # if undocumented-by-Microsoft, reverse-engineered format: Session
+    # Prefetch tools, forensics literature). Returns two lookups keyed by
+    # lowercase exe filename and lowercase "friendly" shortcut/app name,
+    # since UserAssist entries come in both forms.
+    $byExe = @{}
+    $byFriendly = @{}
+    $guidKeys = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist" -ErrorAction SilentlyContinue
+    foreach ($g in $guidKeys) {
+        $item = Get-Item (Join-Path $g.PSPath 'Count') -ErrorAction SilentlyContinue
+        if (-not $item) { continue }
+        foreach ($encName in $item.GetValueNames()) {
+            if ($encName -like 'UEME_CTL*') { continue }
+            $bytes = $item.GetValue($encName)
+            if (-not $bytes -or $bytes.Length -lt 68) { continue }
+            try {
+                $fileTimeLong = [BitConverter]::ToInt64($bytes, 60)
+                if ($fileTimeLong -le 0) { continue }
+                $lastRun = [DateTime]::FromFileTime($fileTimeLong)
+                if ($lastRun.Year -lt 2000 -or $lastRun -gt (Get-Date).AddDays(1)) { continue }
+            } catch { continue }
+
+            $decName = Convert-Rot13String -Text $encName
+            if ($decName -match '([^\\]+)\.exe$') {
+                $exeKey = $matches[1].ToLower() + '.exe'
+                if (-not $byExe.ContainsKey($exeKey) -or $lastRun -gt $byExe[$exeKey]) { $byExe[$exeKey] = $lastRun }
+            } elseif ($decName -match '([^\\]+)\.lnk$') {
+                $friendlyKey = $matches[1].ToLower()
+                if (-not $byFriendly.ContainsKey($friendlyKey) -or $lastRun -gt $byFriendly[$friendlyKey]) { $byFriendly[$friendlyKey] = $lastRun }
+            } elseif ($decName -match '^([A-Za-z0-9.]+)!') {
+                $friendlyKey = ($matches[1] -replace '^Microsoft\.', '').ToLower()
+                if (-not $byFriendly.ContainsKey($friendlyKey) -or $lastRun -gt $byFriendly[$friendlyKey]) { $byFriendly[$friendlyKey] = $lastRun }
+            }
+        }
+    }
+    [PSCustomObject]@{ ByExe = $byExe; ByFriendly = $byFriendly }
+}
+
 function Get-UnusedAppsSummary {
     # The complement of Get-AppUsageSummary: installed programs (from the
     # registry) cross-referenced against what Cortexa has actually tracked
@@ -1258,6 +1312,7 @@ function Get-CombinedAppsSummary {
     $store = Get-AppUsageStore -RootDir $RootDir
     $today = (Get-Date).ToString('yyyy-MM-dd')
     $matchedKeys = @{}
+    $userAssist = Get-UserAssistLastRunData
 
     $installedRows = foreach ($app in $installed) {
         $normInstall = $app.InstallLocation.TrimEnd('\').ToLower()
@@ -1276,13 +1331,50 @@ function Get-CombinedAppsSummary {
         if ($matchKey) { $matchedKeys[$matchKey] = $true }
         $totalM = if ($match) { [double]$match.TotalMinutes } else { 0.0 }
         $todayM = if ($match -and $match.TodayDate -eq $today) { [double]$match.TodayMinutes } else { 0.0 }
+
+        $lastSeen = $null
+        $status = $null
+        if ($match) {
+            $lastSeen = $match.LastSeen
+            $status = "Used - $(Format-AppUsageMinutes -Minutes $totalM) total"
+        } else {
+            # No precise tracking data - fall back to Windows' own UserAssist
+            # record (real last-run date, independent of Cortexa ever running)
+            # before giving up and calling it unseen.
+            $uaDate = $null
+            $candidateExes = @()
+            if (Test-Path -LiteralPath $app.InstallLocation -PathType Container -ErrorAction SilentlyContinue) {
+                try {
+                    $candidateExes = @(Get-ChildItem -LiteralPath $app.InstallLocation -Filter '*.exe' -File -ErrorAction Stop | Select-Object -ExpandProperty Name)
+                } catch {
+                    $candidateExes = @()
+                }
+            }
+            foreach ($exe in $candidateExes) {
+                $key = $exe.ToLower()
+                if ($userAssist.ByExe.ContainsKey($key)) {
+                    if (-not $uaDate -or $userAssist.ByExe[$key] -gt $uaDate) { $uaDate = $userAssist.ByExe[$key] }
+                }
+            }
+            if (-not $uaDate) {
+                $nameLower = $app.Name.ToLower()
+                foreach ($friendlyKey in $userAssist.ByFriendly.Keys) {
+                    if ($nameLower.Contains($friendlyKey) -or $friendlyKey.Contains($nameLower)) {
+                        if (-not $uaDate -or $userAssist.ByFriendly[$friendlyKey] -gt $uaDate) { $uaDate = $userAssist.ByFriendly[$friendlyKey] }
+                    }
+                }
+            }
+            $status = "Not used (installed)"
+            $lastSeen = if ($uaDate) { "$($uaDate.ToString('yyyy-MM-dd HH:mm')) (Windows usage record)" } else { 'No usage record found' }
+        }
+
         [PSCustomObject]@{
             Name         = $app.Name
             Publisher    = $app.Publisher
-            Status       = if ($match) { "Used - $(Format-AppUsageMinutes -Minutes $totalM) total" } else { "Not used (installed)" }
+            Status       = $status
             TotalMinutes = $totalM
             TodayMinutes = $todayM
-            LastSeen     = if ($match) { $match.LastSeen } else { 'Never (tracked)' }
+            LastSeen     = $lastSeen
             SizePath     = $app.InstallLocation
             SizeMB       = if ($app.EstimatedSizeMB) { $app.EstimatedSizeMB } else { -1 }
             Size         = if ($app.EstimatedSizeMB) { "{0:N0} MB (est.)" -f $app.EstimatedSizeMB } else { 'Not calculated' }
@@ -1322,4 +1414,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData

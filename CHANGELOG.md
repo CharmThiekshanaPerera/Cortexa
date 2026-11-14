@@ -2,6 +2,12 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.4.2 — 2026-11-14
+
+### Added
+- **Last Seen for every app, including ones Cortexa never tracked running.** Falls back to Windows' own UserAssist registry record (a real last-run timestamp Windows keeps for GUI-launched apps, independent of Cortexa) when Cortexa has no tracking data of its own. Verified against real data: went from 1/51 apps having a known last-used date to 31/51. The remaining ones are apps with no GUI-launch record at all (e.g. background services like a MySQL server, which are never launched via Explorer/shortcut, so Windows genuinely has nothing to show for them).
+- Fixed a `Get-ChildItem -File` parameter-binding error that occurred for a few installed programs with malformed `InstallLocation` registry values - now checks the path exists and is a real folder first.
+
 ## v1.4.1 — 2026-11-14
 
 ### Changed

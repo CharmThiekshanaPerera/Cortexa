@@ -816,7 +816,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Text="APP USAGE &amp; SIZE" Style="{StaticResource CardHeader}"/>
-                        <TextBlock Text="Every app on this PC in one list - installed programs (from Windows' own Add/Remove Programs) plus anything else Cortexa has tracked running. Usage is tracked while Cortexa is running (sampled every ~15s) plus 15-minute samples from the watchdog when closed, counting only apps with a visible window; totals only cover time since you started monitoring. Sort by size to find big apps you don't use, or by usage to see what you actually run." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Every app on this PC in one list - installed programs (from Windows' own Add/Remove Programs) plus anything else Cortexa has tracked running. &quot;Status/Used&quot; totals come from Cortexa's own tracking (while it's running, plus 15-min watchdog samples when closed - only since you started monitoring). When Cortexa hasn't tracked an app, &quot;Last Seen&quot; falls back to Windows' own usage record (UserAssist) where available, which covers your real history, not just time since monitoring started. Sort by size to find big apps you don't use, or by usage to see what you actually run." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnAppUsageRefresh" Content="Refresh" Style="{StaticResource PrimaryButton}"/>
                             <TextBlock Text="Sort by:" VerticalAlignment="Center" Margin="12,0,6,8"/>
@@ -834,9 +834,9 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                                 <GridView>
                                     <GridViewColumn Header="App" Width="230" DisplayMemberBinding="{Binding Name}"/>
                                     <GridViewColumn Header="Publisher" Width="130" DisplayMemberBinding="{Binding Publisher}"/>
-                                    <GridViewColumn Header="Status" Width="190" DisplayMemberBinding="{Binding Status}"/>
-                                    <GridViewColumn Header="Size (dynamic)" Width="150" DisplayMemberBinding="{Binding Size}"/>
-                                    <GridViewColumn Header="Last Seen" Width="150" DisplayMemberBinding="{Binding LastSeen}"/>
+                                    <GridViewColumn Header="Status" Width="150" DisplayMemberBinding="{Binding Status}"/>
+                                    <GridViewColumn Header="Size (dynamic)" Width="130" DisplayMemberBinding="{Binding Size}"/>
+                                    <GridViewColumn Header="Last Seen" Width="230" DisplayMemberBinding="{Binding LastSeen}"/>
                                 </GridView>
                             </ListView.View>
                         </ListView>
