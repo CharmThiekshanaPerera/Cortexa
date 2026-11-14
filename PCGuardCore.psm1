@@ -1096,13 +1096,26 @@ function Invoke-ClaudeNetworkAnalysis {
     # Cortexa's "Network Monitor" agent - reviews live connections/adapters
     # for anything worth a second look. Advisory only: it reports, it never
     # blocks a connection or changes firewall/network settings.
-    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5')
+    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir)
     $net = Get-NetworkStats
     $conns = @(Get-ActiveConnections -Top 40)
     $adapterLines = ($net.Adapters | ForEach-Object { "$($_.Name): sent $($_.SentMB) MB, received $($_.ReceivedMB) MB" }) -join "`n"
     $connLines = ($conns | ForEach-Object { "$($_.Process) (PID $($_.Pid)): $($_.LocalAddress):$($_.LocalPort) -> $($_.RemoteAddress):$($_.RemotePort) [$($_.State)]" }) -join "`n"
-    $prompt = "Network adapters (totals since last reset):`n$adapterLines`n`nActive connections (up to 40):`n$connLines`n`nAnalyze this network snapshot."
-    $sys = "You are Cortexa's network monitoring agent. Review the provided snapshot (adapters, active connections) and flag anything unusual or worth the user's attention - e.g. unexpected remote connections, unfamiliar processes talking to the network, high-traffic adapters. Be concise, use a short bullet list. If everything looks ordinary, say so plainly rather than inventing concerns. You cannot block, close, or change any connection or setting - only report findings for the user to act on themselves."
+
+    $statsLine = $null
+    $trendLine = $null
+    if ($RootDir) {
+        $stats = Get-NetworkMonitorStats
+        $statsLine = "Realtime stats: $($stats.ConnectionCount) active connection(s), $($stats.ListeningPorts) listening port(s), $($stats.UniqueRemoteIPs) unique remote IP(s)."
+        $hist = @(Get-JsonHistory -RootDir $RootDir -FileName 'network_monitor_history.log' -MaxPoints 20)
+        if ($hist.Count -ge 2) {
+            $connTrend = ($hist | ForEach-Object { $_.ConnectionCount }) -join ', '
+            $trendLine = "Recent connection-count trend (oldest to newest, one sample per refresh): $connTrend"
+        }
+    }
+
+    $prompt = "Network adapters (totals since last reset):`n$adapterLines`n`n$statsLine`n$trendLine`n`nActive connections (up to 40):`n$connLines`n`nAnalyze this network snapshot, including whether the trend shows anything building up over time."
+    $sys = "You are Cortexa's network monitoring agent. Review the provided snapshot (adapters, active connections, realtime stats, and the recent connection-count trend) and flag anything unusual or worth the user's attention - e.g. unexpected remote connections, unfamiliar processes talking to the network, high-traffic adapters, or a connection count that's steadily climbing rather than stable. Be concise, use a short bullet list. If everything looks ordinary, say so plainly rather than inventing concerns. You cannot block, close, or change any connection or setting - only report findings for the user to act on themselves."
     Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
 }
 
@@ -1116,8 +1129,16 @@ function Invoke-ClaudeStorageAnalysis {
     $diskLines = ($health.Disks | ForEach-Object { "$($_.Drive) $($_.FreePercent)% free ($($_.FreeGB) GB of $($_.SizeGB) GB)" }) -join "`n"
     $bigApps = @(Get-CombinedAppsSummary -RootDir $RootDir -SortBy 'Size' -Top 12)
     $appLines = ($bigApps | ForEach-Object { "$($_.Name): $($_.Size), $($_.Status)" }) -join "`n"
-    $prompt = "Disk space:`n$diskLines`n`nBiggest installed apps (with usage status):`n$appLines`n`nGive a short, prioritized storage cleanup plan."
-    $sys = "You are Cortexa's storage management agent. Given disk space and the biggest installed apps with whether each is actually used, produce a short, prioritized cleanup plan - what to consider removing first and why, focusing on big-and-unused items over big-and-used ones. Be concise, use a short list. You cannot delete or uninstall anything yourself - only recommend; the user acts via Cortexa's Apps & Features or Disk Analysis tools."
+
+    $stats = Get-AppUsageStatsSnapshot -RootDir $RootDir
+    $statsLine = "Realtime stats: $($stats.TotalApps) app(s) total, $($stats.UnusedApps) never seen running, ~$($stats.UnusedSizeMB) MB tied up in unused apps out of ~$($stats.TotalSizeMB) MB total (estimated sizes)."
+    $hist = @(Get-JsonHistory -RootDir $RootDir -FileName 'app_usage_history.log' -MaxPoints 20)
+    $trendLine = if ($hist.Count -ge 2) { "Recent unused-app-size trend (oldest to newest, MB): " + (($hist | ForEach-Object { $_.UnusedSizeMB }) -join ', ') } else { $null }
+    $events = @(Get-AppInstallEventLog -RootDir $RootDir -Top 10)
+    $eventLines = if ($events.Count -gt 0) { "Recent install/uninstall activity:`n" + (($events | ForEach-Object { "[$($_.Time)] $($_.Type): $($_.Name)" }) -join "`n") } else { $null }
+
+    $prompt = "Disk space:`n$diskLines`n`n$statsLine`n$trendLine`n`nBiggest installed apps (with usage status):`n$appLines`n`n$eventLines`n`nGive a short, prioritized storage cleanup plan, noting any trend or recent install/uninstall activity worth flagging."
+    $sys = "You are Cortexa's storage management agent. Given disk space, realtime app stats, a trend of unused-app disk usage over time, recent install/uninstall activity, and the biggest installed apps with whether each is actually used, produce a short, prioritized cleanup plan - what to consider removing first and why, focusing on big-and-unused items over big-and-used ones. Mention if the unused-app trend is growing or a newly installed app is worth noting. Be concise, use a short list. You cannot delete or uninstall anything yourself - only recommend; the user acts via Cortexa's Apps & Features or Disk Analysis tools."
     Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
 }
 
@@ -1265,6 +1286,123 @@ function Invoke-LogBackup {
     } catch {
         return $null
     }
+}
+
+function Add-JsonHistorySample {
+    # Generic JSON-lines append, shared by the Network and App Usage
+    # monitoring features (same pattern as Add-SecurityHistorySample) so
+    # each one's persisted trend doesn't need its own copy of this code.
+    param([string]$RootDir, [string]$FileName, [PSCustomObject]$Sample)
+    $logDir = Join-Path $RootDir 'logs'
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+    $logFile = Join-Path $logDir $FileName
+    Add-Content -Path $logFile -Value ($Sample | ConvertTo-Json -Compress)
+}
+
+function Get-JsonHistory {
+    # Generic JSON-lines read-back (oldest first), paired with Add-JsonHistorySample.
+    param([string]$RootDir, [string]$FileName, [int]$MaxPoints = 60)
+    $logFile = Join-Path $RootDir "logs\$FileName"
+    if (-not (Test-Path $logFile)) { return @() }
+    $lines = @(Get-Content $logFile -Tail 1000 -ErrorAction SilentlyContinue)
+    $points = @()
+    foreach ($line in $lines) {
+        try { $points += ($line | ConvertFrom-Json) } catch {}
+    }
+    @($points | Select-Object -Last $MaxPoints)
+}
+
+function Get-NetworkMonitorStats {
+    # Rollup for the Network tab's realtime stats tiles and trend chart.
+    # DownMBs/UpMBs come from the GUI's own previous-vs-current sample delta
+    # (this function has no state of its own to compute a rate from a
+    # single snapshot), everything else is derived fresh here.
+    param([double]$DownMBs = 0, [double]$UpMBs = 0)
+    $connections = @(Get-ActiveConnections -Top 300)
+    $listening = @($connections | Where-Object { $_.State -eq 'Listen' })
+    $remoteIps = @($connections | Where-Object { $_.RemoteAddress -and $_.RemoteAddress -notin @('0.0.0.0', '::', '127.0.0.1', '::1') } |
+        Select-Object -ExpandProperty RemoteAddress -Unique)
+
+    [PSCustomObject]@{
+        Timestamp       = Get-Date
+        DownMBs         = [math]::Round($DownMBs, 3)
+        UpMBs           = [math]::Round($UpMBs, 3)
+        ConnectionCount = $connections.Count
+        ListeningPorts  = $listening.Count
+        UniqueRemoteIPs = $remoteIps.Count
+    }
+}
+
+function Get-AppUsageStatsSnapshot {
+    # Rollup for the App Usage tab's realtime stats tiles and trend chart.
+    # Uses the registry's own EstimatedSizeMB (already loaded by
+    # Get-InstalledPrograms) rather than real-disk sizes, so this stays
+    # cheap enough to run every watchdog cycle - "Calculate Real Sizes" in
+    # the GUI remains the on-demand, accurate alternative.
+    param([string]$RootDir)
+    $combined = @(Get-CombinedAppsSummary -RootDir $RootDir -Top 10000)
+    $unused = @($combined | Where-Object { $_.Status -like 'Not used*' })
+    $sizedTotal = @($combined | Where-Object { $_.SizeMB -gt 0 })
+    $sizedUnused = @($unused | Where-Object { $_.SizeMB -gt 0 })
+
+    [PSCustomObject]@{
+        Timestamp      = Get-Date
+        TotalApps      = $combined.Count
+        UnusedApps     = $unused.Count
+        UnusedSizeMB   = [math]::Round((($sizedUnused | Measure-Object SizeMB -Sum).Sum), 0)
+        TotalSizeMB    = [math]::Round((($sizedTotal | Measure-Object SizeMB -Sum).Sum), 0)
+    }
+}
+
+function Get-AppInstallBaselinePath {
+    param([string]$RootDir)
+    Join-Path $RootDir 'logs\.installed_apps_baseline.json'
+}
+
+function Update-AppInstallBaseline {
+    # Diffs the current installed-programs list against the last known
+    # baseline to detect installs/uninstalls since the previous check,
+    # appends any changes to app_usage_events.log, and updates the
+    # baseline so the NEXT check only reports what's new since THIS one.
+    param([string]$RootDir)
+    $current = @(Get-InstalledPrograms | Select-Object -ExpandProperty Name)
+    $baselinePath = Get-AppInstallBaselinePath -RootDir $RootDir
+    $logDir = Join-Path $RootDir 'logs'
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+
+    $previous = @()
+    if (Test-Path $baselinePath) {
+        try { $previous = @(Get-Content $baselinePath -Raw | ConvertFrom-Json) } catch { $previous = @() }
+    } else {
+        # First run ever - nothing to diff against, just establish the baseline.
+        $current | ConvertTo-Json | Set-Content -Path $baselinePath
+        return @()
+    }
+
+    $installed = @($current | Where-Object { $_ -notin $previous })
+    $removed = @($previous | Where-Object { $_ -notin $current })
+    $events = @()
+    foreach ($name in $installed) { $events += [PSCustomObject]@{ Time = (Get-Date).ToString('yyyy-MM-dd HH:mm'); Type = 'Installed'; Name = $name } }
+    foreach ($name in $removed) { $events += [PSCustomObject]@{ Time = (Get-Date).ToString('yyyy-MM-dd HH:mm'); Type = 'Uninstalled'; Name = $name } }
+
+    if ($events.Count -gt 0) {
+        $eventLogFile = Join-Path $logDir 'app_usage_events.log'
+        foreach ($e in $events) { Add-Content -Path $eventLogFile -Value ($e | ConvertTo-Json -Compress) }
+        $current | ConvertTo-Json | Set-Content -Path $baselinePath
+    }
+    return @($events)
+}
+
+function Get-AppInstallEventLog {
+    param([string]$RootDir, [int]$Top = 40)
+    $logFile = Join-Path $RootDir 'logs\app_usage_events.log'
+    if (-not (Test-Path $logFile)) { return @() }
+    $lines = @(Get-Content $logFile -Tail 500 -ErrorAction SilentlyContinue)
+    $events = @()
+    foreach ($line in $lines) {
+        try { $events += ($line | ConvertFrom-Json) } catch {}
+    }
+    @($events | Select-Object -Last $Top | Sort-Object { [datetime]$_.Time } -Descending)
 }
 
 function Invoke-ClaudeSecurityAnalysis {
@@ -1713,4 +1851,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot, Add-SecurityHistorySample, Get-SecurityHistory, Invoke-LogBackup
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot, Add-SecurityHistorySample, Get-SecurityHistory, Invoke-LogBackup, Add-JsonHistorySample, Get-JsonHistory, Get-NetworkMonitorStats, Get-AppUsageStatsSnapshot, Update-AppInstallBaseline, Get-AppInstallEventLog

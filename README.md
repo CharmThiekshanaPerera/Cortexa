@@ -20,11 +20,11 @@ The app requests administrator privileges via a UAC prompt on every launch (need
 | **Dashboard** | Live RAM/CPU/disk stat tiles with sparkline trends, system info (uptime/battery/GPU), quick actions (Speed Boost, Free Up RAM, Clean Temp, Stop Unwanted Software, Create Restore Point, Battery Health Report), top processes, recent alerts, recent system errors |
 | **Processes** | Advanced task manager — multi-select, End Task / End Task Tree, Open File Location, Set Priority, Ask AI About Selected, auto-refresh |
 | **Disk Analysis** | Largest folders/files scanner (background job, non-blocking), live Disk I/O, WSL/Docker footprint + cleanup |
-| **Network** | Live download/upload sparkline, per-adapter totals, active connections (netstat-style), traffic history |
+| **Network** | Live download/upload sparkline, per-adapter totals, active connections (netstat-style), traffic history, plus realtime monitoring: connection/listening-port/remote-IP stats, a persisted trend chart, and a live Network Activity Log of new connections |
 | **Tasks** | Windows Scheduled Tasks browser with Enable/Disable |
 | **Startup** | Registry Run-key + Startup-folder items, with reversible Enable/Disable (backed up before disabling) and AI Review |
 | **Security** | Windows Defender / Firewall / BitLocker status, disk health (SMART), devices reporting driver errors, listening services (attack surface) with Quick Access shortcuts to Firewall/BitLocker/Device Manager/Windows Security, plus realtime monitoring: 24h stats tiles, a trend chart backed by persisted history (survives restarts), and a security event log (logons, account/firewall/Defender changes, new services) with optional 15s auto-refresh |
-| **App Usage** | Every app in one list - installed programs plus anything tracked running, each with a usage status (used/not used) and on-demand real disk size, sortable by size or usage time to spot big unused apps worth uninstalling |
+| **App Usage** | Every app in one list - installed programs plus anything tracked running, each with a usage status (used/not used) and on-demand real disk size, sortable by size or usage time to spot big unused apps worth uninstalling, plus realtime monitoring: app-count/unused-size stats, a persisted trend chart, an Install/Uninstall Activity Log, and optional 20s auto-refresh |
 | **History** | Trend chart (RAM/CPU/Disk free %) built from the background watchdog's logged scans |
 | **AI Agent** | Chat with a local Ollama model about your system, run a full analysis with clickable suggested-action chips |
 | **Settings** | Alert thresholds, unwanted-software list, webhook alerts (Slack/Discord), AI auto-analysis toggle, settings backup/restore |

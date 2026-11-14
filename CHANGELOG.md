@@ -2,6 +2,16 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.4 — 2026-11-14
+
+### Added
+- **Realtime monitoring extended to Network and App Usage tabs**, matching what the Security tab already does:
+  - **Network**: a new stats row (Active Connections / Listening Ports / Unique Remote IPs), a persisted trend chart (`logs\network_monitor_history.log`, survives restarts), and a session Network Activity Log showing new connections as they appear (diffed against the previous refresh - not persisted, since connections churn too fast to log every one).
+  - **App Usage**: a new stats row (Total Apps / Unused Apps / Unused Size / Total Size), a persisted trend chart (`logs\app_usage_history.log`), an Install/Uninstall Activity Log (diffs the installed-programs list against a saved baseline, persisted to `logs\app_usage_events.log`), and a new "Live auto-refresh (20s)" option.
+  - History persistence is throttled to once per ~15s even with auto-refresh on, so leaving a tab open doesn't flood the log files; the background watchdog also samples both every 15 minutes so history keeps building when the GUI is closed.
+- **The Claude Network Monitor and Storage Manager agents now see this same richer data** - realtime stats, the persisted trend, and (for Storage) recent install/uninstall activity - for better-informed analysis and follow-up chat decisions, the same upgrade the Security Monitor agent got in v1.6.3.
+- New core functions: `Get-NetworkMonitorStats`, `Get-AppUsageStatsSnapshot`, `Update-AppInstallBaseline`, `Get-AppInstallEventLog`, and generic `Add-JsonHistorySample`/`Get-JsonHistory` helpers shared by both.
+
 ## v1.6.3 — 2026-11-14
 
 ### Added

@@ -134,6 +134,21 @@ try {
 } catch { Write-Log "Security history sample failed: $_" }
 
 try {
+    # DownMBs/UpMBs left at 0 here - an instantaneous rate needs two close-
+    # together samples, which this 15-min-interval run doesn't have; the GUI
+    # supplies real rates while it's open. Connection/listening-port counts
+    # are still meaningful on their own.
+    $netMonStats = Get-NetworkMonitorStats
+    Add-JsonHistorySample -RootDir $RootDir -FileName 'network_monitor_history.log' -Sample $netMonStats
+} catch { Write-Log "Network monitor history sample failed: $_" }
+
+try {
+    Update-AppInstallBaseline -RootDir $RootDir | Out-Null
+    $appStats = Get-AppUsageStatsSnapshot -RootDir $RootDir
+    Add-JsonHistorySample -RootDir $RootDir -FileName 'app_usage_history.log' -Sample $appStats
+} catch { Write-Log "App usage history sample failed: $_" }
+
+try {
     $backupZip = Invoke-LogBackup -RootDir $RootDir
     if ($backupZip) { Write-Log "Logs backed up to: $backupZip" }
 } catch { Write-Log "Log backup failed: $_" }

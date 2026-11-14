@@ -650,6 +650,43 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
 
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
+                        <TextBlock Text="REALTIME NETWORK STATS" Style="{StaticResource CardHeader}"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="ACTIVE CONNECTIONS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="ActiveConnCountText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="LISTENING PORTS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="NetListeningPortsText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource StatTile}" Margin="0,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="UNIQUE REMOTE IPs" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="UniqueRemoteIpsText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Border Width="10" Height="10" Background="#8b5cf6" CornerRadius="5" Margin="0,0,5,0"/>
+                            <TextBlock Text="Active connections (per refresh)" Style="{StaticResource MutedText}" Margin="0,0,14,0"/>
+                            <Border Width="10" Height="10" Background="#f59e0b" CornerRadius="5" Margin="0,0,5,0"/>
+                            <TextBlock Text="Listening ports (per refresh)" Style="{StaticResource MutedText}"/>
+                        </StackPanel>
+                        <Border Background="{StaticResource CardAltBrush}" CornerRadius="8" Height="80">
+                            <Canvas x:Name="NetworkMonitorTrendCanvas" Background="Transparent" ClipToBounds="True"/>
+                        </Border>
+                        <TextBlock Text="Persisted history: every refresh is saved to logs\network_monitor_history.log and survives restarts. This is exactly the data the Claude Network Monitor Agent analyzes below." Style="{StaticResource MutedText}" Margin="2,8,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
                         <TextBlock Text="ADAPTERS (TOTAL SINCE LAST RESET)" Style="{StaticResource CardHeader}"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnNetRefresh" Content="Refresh Now" Style="{StaticResource PrimaryButton}"/>
@@ -687,6 +724,24 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="NETWORK ACTIVITY LOG (NEW CONNECTIONS THIS SESSION)" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Connections that appeared since the previous refresh - a live diff against the Active Connections list above, not a stored history (connections churn too fast/often to log every one to disk)." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <ListView x:Name="NetworkActivityLogList" Height="160">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Time" Width="90" DisplayMemberBinding="{Binding Time}"/>
+                                    <GridViewColumn Header="Process" Width="150" DisplayMemberBinding="{Binding Process}"/>
+                                    <GridViewColumn Header="Remote Address" Width="160" DisplayMemberBinding="{Binding RemoteAddress}"/>
+                                    <GridViewColumn Header="Remote Port" Width="100" DisplayMemberBinding="{Binding RemotePort}"/>
+                                    <GridViewColumn Header="Event" Width="120" DisplayMemberBinding="{Binding Event}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource Card}" Margin="0,0,0,4">
                     <StackPanel>
                         <TextBlock Text="TRAFFIC HISTORY (WATCHDOG SCANS)" Style="{StaticResource CardHeader}"/>
@@ -706,7 +761,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                 <Border Style="{StaticResource Card}" Margin="0,0,0,4">
                     <StackPanel>
                         <TextBlock Text="CLAUDE NETWORK MONITOR AGENT" Style="{StaticResource CardHeader}"/>
-                        <TextBlock Text="Sends the current adapter totals and active connections list to Anthropic's Claude API for analysis - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: reports findings, never blocks or changes anything." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Sends the current adapter totals, active connections list, realtime stats, and the connection-count trend (above) to Anthropic's Claude API for analysis - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: reports findings, never blocks or changes anything." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnClaudeNetworkAnalyze" Content="Analyze Network (Claude)" Background="#d97757"/>
                         </WrapPanel>
@@ -951,6 +1006,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         <TextBlock Text="Every app on this PC in one list - installed programs (from Windows' own Add/Remove Programs) plus anything else Cortexa has tracked running. &quot;Status/Used&quot; totals come from Cortexa's own tracking (while it's running, plus 15-min watchdog samples when closed - only since you started monitoring). When Cortexa hasn't tracked an app, &quot;Last Seen&quot; falls back to Windows' own usage record (UserAssist) where available, which covers your real history, not just time since monitoring started. Sort by size to find big apps you don't use, or by usage to see what you actually run." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnAppUsageRefresh" Content="Refresh" Style="{StaticResource PrimaryButton}"/>
+                            <CheckBox x:Name="ChkAppUsageAuto" Content="Live auto-refresh (20s)" VerticalAlignment="Center" Margin="10,10,0,0"/>
                             <TextBlock Text="Sort by:" VerticalAlignment="Center" Margin="12,0,6,8"/>
                             <ComboBox x:Name="AppUsageSortCombo" Width="110" SelectedIndex="0">
                                 <ComboBoxItem Content="Size"/>
@@ -985,10 +1041,69 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="REALTIME APP USAGE STATS" Style="{StaticResource CardHeader}"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="TOTAL APPS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="TotalAppsText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="UNUSED APPS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="UnusedAppsCountText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="UNUSED SIZE (MB)" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="UnusedSizeText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="3" Style="{StaticResource StatTile}" Margin="0,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="TOTAL SIZE (MB)" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="TotalSizeText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Border Width="10" Height="10" Background="#ef4444" CornerRadius="5" Margin="0,0,5,0"/>
+                            <TextBlock Text="Unused app size, MB (per refresh)" Style="{StaticResource MutedText}" Margin="0,0,14,0"/>
+                            <Border Width="10" Height="10" Background="#8b5cf6" CornerRadius="5" Margin="0,0,5,0"/>
+                            <TextBlock Text="Total installed size, MB (per refresh)" Style="{StaticResource MutedText}"/>
+                        </StackPanel>
+                        <Border Background="{StaticResource CardAltBrush}" CornerRadius="8" Height="80">
+                            <Canvas x:Name="AppUsageTrendCanvas" Background="Transparent" ClipToBounds="True"/>
+                        </Border>
+                        <TextBlock Text="Persisted history: every refresh is saved to logs\app_usage_history.log and survives restarts. This is exactly the data the Claude Storage Manager Agent analyzes below." Style="{StaticResource MutedText}" Margin="2,8,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="INSTALL / UNINSTALL ACTIVITY LOG" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Apps that appeared or disappeared from Windows' Add/Remove Programs since the last check - detected by comparing the installed-programs list against a saved baseline, persisted to logs\app_usage_events.log." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <ListView x:Name="AppInstallEventLogList" Height="150">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Time" Width="150" DisplayMemberBinding="{Binding Time}"/>
+                                    <GridViewColumn Header="Event" Width="110" DisplayMemberBinding="{Binding Type}"/>
+                                    <GridViewColumn Header="App" Width="300" DisplayMemberBinding="{Binding Name}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource Card}" Margin="0,0,0,4">
                     <StackPanel>
                         <TextBlock Text="CLAUDE STORAGE MANAGER AGENT" Style="{StaticResource CardHeader}"/>
-                        <TextBlock Text="Sends disk free space and your biggest installed apps (with usage status, from the list above) to Anthropic's Claude API for a prioritized cleanup plan - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: never deletes or uninstalls anything itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Sends disk free space, realtime app stats, the unused-app-size trend, recent install/uninstall activity, and your biggest installed apps (with usage status, all from above) to Anthropic's Claude API for a prioritized cleanup plan - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: never deletes or uninstalls anything itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnClaudeStorageAnalyze" Content="Analyze Storage (Claude)" Background="#d97757"/>
                         </WrapPanel>
@@ -1304,7 +1419,9 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'ListeningServicesList','ListeningStatusText',
                  'BtnOpenFirewallSettings','BtnOpenBitLockerSettings','BtnOpenDeviceManager','BtnOpenWindowsSecurity',
                  'ChkSecurityAuto','FailedLogonsText','SuccessfulLogonsText','DefenderDetectionsText','NewServicesText',
-                 'SecurityTrendCanvas','SecurityEventLogList','SecurityEventLogStatusText')) {
+                 'SecurityTrendCanvas','SecurityEventLogList','SecurityEventLogStatusText',
+                 'ActiveConnCountText','NetListeningPortsText','UniqueRemoteIpsText','NetworkMonitorTrendCanvas','NetworkActivityLogList',
+                 'ChkAppUsageAuto','TotalAppsText','UnusedAppsCountText','UnusedSizeText','TotalSizeText','AppUsageTrendCanvas','AppInstallEventLogList')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -1360,6 +1477,13 @@ $script:LiveDiskRead = New-Object 'System.Collections.Generic.List[double]'
 $script:LiveDiskWrite = New-Object 'System.Collections.Generic.List[double]'
 $script:LiveFailedLogons = New-Object 'System.Collections.Generic.List[double]'
 $script:LiveListeningPorts = New-Object 'System.Collections.Generic.List[double]'
+$script:LiveConnCount = New-Object 'System.Collections.Generic.List[double]'
+$script:LiveNetListeningPorts = New-Object 'System.Collections.Generic.List[double]'
+$script:LiveUnusedSize = New-Object 'System.Collections.Generic.List[double]'
+$script:LiveTotalSize = New-Object 'System.Collections.Generic.List[double]'
+$script:PrevConnSnapshot = @()
+$script:NetworkActivityLog = @()
+$script:LastNetHistoryPersist = [datetime]::MinValue
 
 function Set-BarColor {
     param($Bar, [double]$FreePercent)
@@ -1953,12 +2077,14 @@ $script:AllConnections = @()
 
 function Refresh-NetworkTab {
     $snap = Get-NetworkStats
+    $down = 0; $up = 0; $haveRate = $false
 
     if ($script:PrevNetSample) {
         $dt = ($snap.Timestamp - $script:PrevNetSample.Timestamp).TotalSeconds
         if ($dt -gt 0.5) {
             $down = [math]::Max(0, (($snap.TotalReceivedBytes - $script:PrevNetSample.TotalReceivedBytes) / 1MB) / $dt)
             $up   = [math]::Max(0, (($snap.TotalSentBytes - $script:PrevNetSample.TotalSentBytes) / 1MB) / $dt)
+            $haveRate = $true
             $NetDownText.Text = "{0:N2} MB/s" -f $down
             $NetUpText.Text   = "{0:N2} MB/s" -f $up
             Add-RollingPoint -List $script:LiveDown -Value $down
@@ -1976,6 +2102,45 @@ function Refresh-NetworkTab {
 
     $script:AllConnections = Get-ActiveConnections -Top 300
     Apply-ConnFilter
+
+    # Diff against the previous connection snapshot to build a lightweight,
+    # session-only "new connections" activity log (connections churn too
+    # fast to persist every one to disk, unlike the stats snapshot below).
+    $prevKeys = @{}
+    foreach ($c in $script:PrevConnSnapshot) { $prevKeys["$($c.Process)|$($c.RemoteAddress)|$($c.RemotePort)"] = $true }
+    $newConns = @($script:AllConnections | Where-Object {
+        $_.RemoteAddress -and $_.RemoteAddress -notin @('0.0.0.0', '::') -and -not $prevKeys.ContainsKey("$($_.Process)|$($_.RemoteAddress)|$($_.RemotePort)")
+    })
+    if ($script:PrevConnSnapshot.Count -gt 0 -and $newConns.Count -gt 0) {
+        $now = Get-Date -Format 'HH:mm:ss'
+        $newEntries = @($newConns | ForEach-Object { [PSCustomObject]@{ Time = $now; Process = $_.Process; RemoteAddress = $_.RemoteAddress; RemotePort = $_.RemotePort; Event = 'New connection' } })
+        $script:NetworkActivityLog = @($newEntries + @($script:NetworkActivityLog)) | Select-Object -First 100
+        $NetworkActivityLogList.ItemsSource = $null
+        $NetworkActivityLogList.ItemsSource = @($script:NetworkActivityLog)
+    }
+    $script:PrevConnSnapshot = $script:AllConnections
+
+    if ($haveRate) {
+        $netStats = Get-NetworkMonitorStats -DownMBs $down -UpMBs $up
+        $ActiveConnCountText.Text = $netStats.ConnectionCount
+        $NetListeningPortsText.Text = $netStats.ListeningPorts
+        $UniqueRemoteIpsText.Text = $netStats.UniqueRemoteIPs
+
+        # Throttle persistence to once per ~15s so leaving "Live auto-refresh
+        # (3s)" on for a long time doesn't flood network_monitor_history.log.
+        if (((Get-Date) - $script:LastNetHistoryPersist).TotalSeconds -ge 15) {
+            $script:LastNetHistoryPersist = Get-Date
+            try { Add-JsonHistorySample -RootDir $RootDir -FileName 'network_monitor_history.log' -Sample $netStats } catch {}
+            $netHistory = @(Get-JsonHistory -RootDir $RootDir -FileName 'network_monitor_history.log' -MaxPoints 60)
+            $script:LiveConnCount.Clear()
+            $script:LiveNetListeningPorts.Clear()
+            foreach ($p in $netHistory) {
+                Add-RollingPoint -List $script:LiveConnCount -Value $p.ConnectionCount -MaxLen 60
+                Add-RollingPoint -List $script:LiveNetListeningPorts -Value $p.ListeningPorts -MaxLen 60
+            }
+            Draw-Sparkline -Canvas $NetworkMonitorTrendCanvas -Series @($script:LiveConnCount, $script:LiveNetListeningPorts) -Colors @('#8b5cf6', '#f59e0b')
+        }
+    }
 
     Draw-NetHistoryChart
 }
@@ -2055,10 +2220,10 @@ $BtnClaudeNetworkAnalyze.Add_Click({
     $BtnClaudeNetworkAnalyze.IsEnabled = $false
     $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model)
+        param($mp, $apiKey, $model, $rootDir)
         Import-Module $mp -Force
-        Invoke-ClaudeNetworkAnalysis -ApiKey $apiKey -Model $model
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel) -OnComplete {
+        Invoke-ClaudeNetworkAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir) -OnComplete {
         param($result)
         $BtnClaudeNetworkAnalyze.IsEnabled = $true
         if ($result.Success) {
@@ -2361,6 +2526,8 @@ $BtnClaudeSecurityChatSend.Add_Click({
 # ---------- App Usage tab ----------
 $script:AppUsageRows = @()
 
+$script:LastAppUsageHistoryPersist = [datetime]::MinValue
+
 function Refresh-AppUsageList {
     $sortBy = if ($AppUsageSortCombo.SelectedItem) { $AppUsageSortCombo.SelectedItem.Content.ToString() } else { 'Size' }
     $AppUsageStatusText.Text = "Reading installed programs and usage data..."
@@ -2368,9 +2535,45 @@ function Refresh-AppUsageList {
     $AppUsageList.ItemsSource = $null
     $AppUsageList.ItemsSource = $script:AppUsageRows
     $AppUsageStatusText.Text = "Showing $($script:AppUsageRows.Count) apps, sorted by $sortBy. Last refreshed $(Get-Date -Format 'HH:mm:ss')."
+
+    # Throttled like the Network tab's history, so "Live auto-refresh (20s)"
+    # can't flood app_usage_history.log; a plain manual click always runs it.
+    if (((Get-Date) - $script:LastAppUsageHistoryPersist).TotalSeconds -ge 15) {
+        $script:LastAppUsageHistoryPersist = Get-Date
+
+        $newEvents = @(Update-AppInstallBaseline -RootDir $RootDir)
+        $allEvents = @(Get-AppInstallEventLog -RootDir $RootDir -Top 40)
+        $AppInstallEventLogList.ItemsSource = $null
+        if ($allEvents.Count -eq 0) {
+            $AppInstallEventLogList.ItemsSource = @([PSCustomObject]@{ Time = ''; Type = 'No changes detected yet'; Name = 'Install/uninstall an app, then refresh again to see it appear here.' })
+        } else {
+            $AppInstallEventLogList.ItemsSource = @($allEvents)
+        }
+
+        $appStats = Get-AppUsageStatsSnapshot -RootDir $RootDir
+        $TotalAppsText.Text = $appStats.TotalApps
+        $UnusedAppsCountText.Text = $appStats.UnusedApps
+        $UnusedSizeText.Text = "{0:N0}" -f $appStats.UnusedSizeMB
+        $TotalSizeText.Text = "{0:N0}" -f $appStats.TotalSizeMB
+
+        try { Add-JsonHistorySample -RootDir $RootDir -FileName 'app_usage_history.log' -Sample $appStats } catch {}
+        $appHistory = @(Get-JsonHistory -RootDir $RootDir -FileName 'app_usage_history.log' -MaxPoints 60)
+        $script:LiveUnusedSize.Clear()
+        $script:LiveTotalSize.Clear()
+        foreach ($p in $appHistory) {
+            Add-RollingPoint -List $script:LiveUnusedSize -Value $p.UnusedSizeMB -MaxLen 60
+            Add-RollingPoint -List $script:LiveTotalSize -Value $p.TotalSizeMB -MaxLen 60
+        }
+        Draw-Sparkline -Canvas $AppUsageTrendCanvas -Series @($script:LiveUnusedSize, $script:LiveTotalSize) -Colors @('#ef4444', '#8b5cf6')
+    }
 }
 
 $BtnAppUsageRefresh.Add_Click({ Refresh-AppUsageList })
+
+$appUsageTimer = New-Object System.Windows.Threading.DispatcherTimer
+$appUsageTimer.Interval = [TimeSpan]::FromSeconds(20)
+$appUsageTimer.Add_Tick({ if ($ChkAppUsageAuto.IsChecked) { Refresh-AppUsageList } })
+$appUsageTimer.Start()
 $AppUsageSortCombo.Add_SelectionChanged({ Refresh-AppUsageList })
 $BtnOpenAppsFeatures.Add_Click({ Start-Process "ms-settings:appsfeatures" })
 
