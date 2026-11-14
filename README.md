@@ -24,6 +24,7 @@ The app requests administrator privileges via a UAC prompt on every launch (need
 | **Tasks** | Windows Scheduled Tasks browser with Enable/Disable |
 | **Startup** | Registry Run-key + Startup-folder items, with reversible Enable/Disable (backed up before disabling) and AI Review |
 | **Security** | Windows Defender / Firewall / BitLocker status, disk health (SMART), devices reporting driver errors |
+| **App Usage** | Most-used apps by time (tracked while Cortexa runs, plus coarse samples from the watchdog when closed), with on-demand disk size per app |
 | **History** | Trend chart (RAM/CPU/Disk free %) built from the background watchdog's logged scans |
 | **AI Agent** | Chat with a local Ollama model about your system, run a full analysis with clickable suggested-action chips |
 | **Settings** | Alert thresholds, unwanted-software list, webhook alerts (Slack/Discord), AI auto-analysis toggle, settings backup/restore |

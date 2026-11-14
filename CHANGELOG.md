@@ -2,6 +2,15 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.3 — 2026-11-14
+
+### New: App Usage tab
+- Tracks the most-used apps by time: a 15-second sampler while Cortexa's GUI is open, plus a 15-minute sample from the background watchdog so tracking continues when the window is closed. Only counts processes with an actual visible window (filters out background services/drivers).
+- Shows Today and All-Time totals, sortable.
+- **Dynamic app size**: disk size per app is computed on demand (via a background job, same non-blocking pattern as the folder/file scanners) from the app's install folder — not cached or static, recalculated fresh each time you click Calculate Sizes.
+- Reset Usage Data button to clear tracked history.
+- Usage data stored in `logs/app_usage.json`, separate from the main watchdog log.
+
 ## v1.2 — 2026-11-08
 
 ### AI Agent — final batch

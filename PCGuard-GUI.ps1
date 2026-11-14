@@ -810,6 +810,40 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
             </StackPanel>
         </TabItem>
 
+        <!-- ================= APP USAGE ================= -->
+        <TabItem Header="App Usage">
+            <StackPanel>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="MOST USED APPS" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Tracked while Cortexa is running (sampled every ~15s) plus 15-minute samples from the background watchdog when closed. Totals only cover time since you started monitoring - not your full history before that. Only apps with a visible window are counted." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnAppUsageRefresh" Content="Refresh" Style="{StaticResource PrimaryButton}"/>
+                            <TextBlock Text="Sort by:" VerticalAlignment="Center" Margin="12,0,6,8"/>
+                            <ComboBox x:Name="AppUsageSortCombo" Width="110" SelectedIndex="0">
+                                <ComboBoxItem Content="Today"/>
+                                <ComboBoxItem Content="Total"/>
+                            </ComboBox>
+                            <Button x:Name="BtnCalcSizes" Content="Calculate Sizes"/>
+                            <Button x:Name="BtnResetUsage" Content="Reset Usage Data" Style="{StaticResource WarningButton}"/>
+                        </WrapPanel>
+                        <ListView x:Name="AppUsageList" Height="420">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="App" Width="220" DisplayMemberBinding="{Binding App}"/>
+                                    <GridViewColumn Header="Today" Width="100" DisplayMemberBinding="{Binding Today}"/>
+                                    <GridViewColumn Header="Total" Width="100" DisplayMemberBinding="{Binding Total}"/>
+                                    <GridViewColumn Header="Size (disk, dynamic)" Width="150" DisplayMemberBinding="{Binding Size}"/>
+                                    <GridViewColumn Header="Last Seen" Width="150" DisplayMemberBinding="{Binding LastSeen}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock x:Name="AppUsageStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </TabItem>
+
         <!-- ================= HISTORY ================= -->
         <TabItem Header="History">
             <StackPanel>
@@ -1085,7 +1119,8 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'BtnRunAllSteps','BtnAiHistoryRefresh','AiHistoryList',
                  'BtnExplainAlert','AlertAiPanel','AlertAiText',
                  'RuleInput','BtnAddRule','RuleStatus','RuleList','BtnDeleteRule',
-                 'ChkAutoApproveFreeRam','ChkAutoApproveCleanTemp')) {
+                 'ChkAutoApproveFreeRam','ChkAutoApproveCleanTemp',
+                 'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -1378,6 +1413,13 @@ $liveTimer.Add_Tick({
     Draw-Sparkline -Canvas $CpuSparkline -Series @(,$script:LiveCpu) -Colors @('#22d3ee') -FixedMax 100
 })
 $liveTimer.Start()
+
+# Samples app usage every 15s while the GUI is open (the watchdog covers the
+# coarser 15-min samples when it's closed - see Add-AppUsageSample).
+$appUsageTimer = New-Object System.Windows.Threading.DispatcherTimer
+$appUsageTimer.Interval = [TimeSpan]::FromSeconds(15)
+$appUsageTimer.Add_Tick({ Add-AppUsageSample -RootDir $RootDir -MinutesElapsed 0.25 })
+$appUsageTimer.Start()
 
 # ---------- Processes tab ----------
 $script:AllProcesses = @()
@@ -1906,6 +1948,70 @@ function Refresh-SecurityTab {
 
 $BtnSecurityRefresh.Add_Click({ Refresh-SecurityTab })
 
+# ---------- App Usage tab ----------
+$script:AppUsageRows = @()
+
+function Refresh-AppUsageList {
+    $sortBy = if ($AppUsageSortCombo.SelectedItem) { $AppUsageSortCombo.SelectedItem.Content.ToString() } else { 'Today' }
+    $script:AppUsageRows = @(Get-AppUsageSummary -RootDir $RootDir -SortBy $sortBy -Top 30)
+    $AppUsageList.ItemsSource = $null
+    $AppUsageList.ItemsSource = $script:AppUsageRows
+    $AppUsageStatusText.Text = "Showing $($script:AppUsageRows.Count) apps, sorted by $sortBy. Last refreshed $(Get-Date -Format 'HH:mm:ss')."
+}
+
+$BtnAppUsageRefresh.Add_Click({ Refresh-AppUsageList })
+$AppUsageSortCombo.Add_SelectionChanged({ Refresh-AppUsageList })
+
+$BtnResetUsage.Add_Click({
+    $confirm = [System.Windows.MessageBox]::Show("Reset all tracked app usage data? This cannot be undone.", "Confirm Reset", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
+    if ($confirm -eq 'Yes') {
+        Reset-AppUsageStats -RootDir $RootDir
+        Refresh-AppUsageList
+        $AppUsageStatusText.Text = "Usage data cleared."
+    }
+})
+
+$script:SizeCalcJob = $null
+$script:SizeCalcTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:SizeCalcTimer.Interval = [TimeSpan]::FromSeconds(1)
+$script:SizeCalcTimer.Add_Tick({
+    if ($script:SizeCalcJob -and $script:SizeCalcJob.State -in @('Completed', 'Failed', 'Stopped')) {
+        $script:SizeCalcTimer.Stop()
+        $results = @(Receive-Job -Job $script:SizeCalcJob -ErrorAction SilentlyContinue)
+        Remove-Job -Job $script:SizeCalcJob -Force
+        $script:SizeCalcJob = $null
+
+        foreach ($r in $results) {
+            $row = $script:AppUsageRows | Where-Object { $_.Key -eq $r.Key } | Select-Object -First 1
+            if ($row) {
+                $row.SizeMB = $r.SizeMB
+                $row.Size = if ($null -eq $r.SizeMB) { 'Unknown' } elseif ($r.SizeMB -ge 1024) { "{0:N2} GB" -f ($r.SizeMB / 1024) } else { "{0:N0} MB" -f $r.SizeMB }
+            }
+        }
+        $AppUsageList.ItemsSource = $null
+        $AppUsageList.ItemsSource = $script:AppUsageRows
+        $AppUsageStatusText.Text = "Sizes calculated: $(Get-Date -Format 'HH:mm:ss')"
+        $BtnCalcSizes.IsEnabled = $true
+    }
+})
+
+$BtnCalcSizes.Add_Click({
+    if ($script:AppUsageRows.Count -eq 0) { return }
+    $BtnCalcSizes.IsEnabled = $false
+    $AppUsageStatusText.Text = "Calculating app sizes (can take a while for large install folders)..."
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    $targets = $script:AppUsageRows | Select-Object Key, ExePath
+    $script:SizeCalcJob = Start-Job -ScriptBlock {
+        param($mp, $rows)
+        Import-Module $mp -Force
+        foreach ($row in $rows) {
+            $size = if ($row.ExePath) { Get-AppSizeOnDisk -ExePath $row.ExePath } else { $null }
+            [PSCustomObject]@{ Key = $row.Key; SizeMB = $size }
+        }
+    } -ArgumentList @($modelPath, $targets)
+    $script:SizeCalcTimer.Start()
+})
+
 # ---------- AI Agent tab ----------
 $script:AiMessages = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
 $script:LastSuggestedActions = @()
@@ -2379,6 +2485,7 @@ Refresh-DiskIo
 Refresh-TaskList
 Refresh-StartupList
 Refresh-SecurityTab
+Refresh-AppUsageList
 Refresh-OllamaStatus | Out-Null
 Refresh-AiHistory
 Refresh-NetworkTab

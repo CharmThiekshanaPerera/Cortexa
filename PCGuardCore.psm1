@@ -901,7 +901,7 @@ function Invoke-AiReviewStartupItems {
     Invoke-OllamaGenerate -Model $Model -Prompt $prompt -SystemPrompt $sys -BaseUrl $BaseUrl -TimeoutSec 60
 }
 
-$script:CommandBarTabWhitelist = @('Dashboard', 'Processes', 'Disk Analysis', 'Network', 'Tasks', 'Startup', 'Security', 'History', 'AI Agent', 'Settings')
+$script:CommandBarTabWhitelist = @('Dashboard', 'Processes', 'Disk Analysis', 'Network', 'Tasks', 'Startup', 'Security', 'App Usage', 'History', 'AI Agent', 'Settings')
 $script:CommandBarActionTokens = @('FreeRam', 'CleanTemp', 'StopUnwanted', 'SpeedBoost', 'ShutdownWsl', 'RestorePoint', 'EndProcess', 'OpenTab')
 
 function Invoke-AiParseCommand {
@@ -1028,4 +1028,149 @@ function Get-AiActionLog {
     return @($parsed | Select-Object -Last $Top | Sort-Object Time -Descending)
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions
+$script:AppUsageExcluded = @(
+    'System', 'Idle', 'Registry', 'MemCompression', 'smss', 'csrss', 'wininit', 'winlogon', 'services',
+    'lsass', 'svchost', 'dwm', 'fontdrvhost', 'WmiPrvSE', 'RuntimeBroker', 'SearchIndexer', 'SearchHost',
+    'conhost', 'dllhost', 'backgroundTaskHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
+    'TextInputHost', 'ApplicationFrameHost', 'SecurityHealthService', 'SecurityHealthSystray',
+    'sihost', 'ctfmon', 'explorer', 'powershell', 'pwsh', 'PCGuard-GUI', 'Cortexa', 'PCGuard'
+)
+
+function Get-AppUsageStorePath {
+    param([string]$RootDir)
+    Join-Path $RootDir 'logs\app_usage.json'
+}
+
+function Get-AppUsageStore {
+    param([string]$RootDir)
+    $path = Get-AppUsageStorePath -RootDir $RootDir
+    if (-not (Test-Path $path)) { return @{} }
+    try {
+        $raw = Get-Content $path -Raw | ConvertFrom-Json
+        $store = @{}
+        foreach ($prop in $raw.PSObject.Properties) { $store[$prop.Name] = $prop.Value }
+        return $store
+    } catch {
+        return @{}
+    }
+}
+
+function Save-AppUsageStore {
+    param([string]$RootDir, [hashtable]$Store)
+    $logDir = Join-Path $RootDir 'logs'
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+    $Store | ConvertTo-Json -Depth 5 | Set-Content -Path (Get-AppUsageStorePath -RootDir $RootDir) -Encoding UTF8
+}
+
+function Add-AppUsageSample {
+    # Called periodically (every ~15s while the GUI is open, every 15 min from
+    # the watchdog) - adds $MinutesElapsed to every currently-running,
+    # non-system process's accumulated time. This is sampling, not precise
+    # instrumentation: a process "counts" for the whole interval if it was
+    # running at the moment of the sample, which is a reasonable approximation
+    # at these intervals, not a claim of second-accurate tracking.
+    param([string]$RootDir, [double]$MinutesElapsed)
+
+    $today = (Get-Date).ToString('yyyy-MM-dd')
+    $now = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $store = Get-AppUsageStore -RootDir $RootDir
+
+    $seenNames = @{}
+    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+        # Only count processes with an actual visible window at sample time -
+        # this is what separates "an app the user is using" from the dozens
+        # of background services/drivers that are always running.
+        if ($p.MainWindowHandle -eq [IntPtr]::Zero) { continue }
+        if (-not $p.MainWindowTitle) { continue }
+        if ($script:AppUsageExcluded -contains $p.ProcessName) { continue }
+        $key = $p.ProcessName.ToLower()
+        if ($seenNames.ContainsKey($key)) { continue }
+        $seenNames[$key] = $true
+
+        if (-not $store.ContainsKey($key)) {
+            $store[$key] = @{
+                FriendlyName = $p.ProcessName
+                TotalMinutes = 0.0
+                TodayMinutes = 0.0
+                TodayDate    = $today
+                FirstSeen    = $now
+                LastSeen     = $now
+                ExePath      = $null
+            }
+        }
+        $entry = $store[$key]
+        if ($entry.TodayDate -ne $today) {
+            $entry.TodayDate = $today
+            $entry.TodayMinutes = 0.0
+        }
+        $entry.TotalMinutes = [double]$entry.TotalMinutes + $MinutesElapsed
+        $entry.TodayMinutes = [double]$entry.TodayMinutes + $MinutesElapsed
+        $entry.LastSeen = $now
+        if (-not $entry.ExePath) {
+            try { if ($p.Path) { $entry.ExePath = $p.Path } } catch {}
+        }
+        $store[$key] = $entry
+    }
+
+    Save-AppUsageStore -RootDir $RootDir -Store $store
+}
+
+function Format-AppUsageMinutes {
+    param([double]$Minutes)
+    $h = [math]::Floor($Minutes / 60)
+    $m = [math]::Round($Minutes % 60)
+    if ($h -gt 0) { "{0}h {1}m" -f $h, $m } else { "{0}m" -f $m }
+}
+
+function Get-AppUsageSummary {
+    param([string]$RootDir, [string]$SortBy = 'Today', [int]$Top = 30)
+    $store = Get-AppUsageStore -RootDir $RootDir
+    $today = (Get-Date).ToString('yyyy-MM-dd')
+
+    $rows = foreach ($key in $store.Keys) {
+        $e = $store[$key]
+        $todayMinutes = if ($e.TodayDate -eq $today) { [double]$e.TodayMinutes } else { 0.0 }
+        [PSCustomObject]@{
+            Key           = $key
+            App           = $e.FriendlyName
+            TodayMinutes  = $todayMinutes
+            Today         = Format-AppUsageMinutes -Minutes $todayMinutes
+            TotalMinutes  = [double]$e.TotalMinutes
+            Total         = Format-AppUsageMinutes -Minutes ([double]$e.TotalMinutes)
+            LastSeen      = $e.LastSeen
+            ExePath       = $e.ExePath
+            Size          = 'Not calculated'
+            SizeMB        = -1
+        }
+    }
+
+    $sorted = if ($SortBy -eq 'Total') {
+        $rows | Sort-Object TotalMinutes -Descending
+    } else {
+        $rows | Sort-Object TodayMinutes -Descending
+    }
+    return @($sorted | Select-Object -First $Top)
+}
+
+function Get-AppSizeOnDisk {
+    # "App size" = the size of the folder containing the app's main
+    # executable, computed fresh each time (not cached/static) since installs
+    # grow/shrink (updates, caches, etc). Approximate by design: the true
+    # "install root" isn't reliably knowable for every app, so this reports
+    # the exe's own containing folder, recursively.
+    param([string]$ExePath)
+    if (-not $ExePath -or -not (Test-Path $ExePath)) { return $null }
+    $folder = Split-Path -Parent $ExePath
+    if (-not $folder -or -not (Test-Path $folder)) { return $null }
+    $bytes = (Get-ChildItem $folder -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    if (-not $bytes) { return 0 }
+    [math]::Round($bytes / 1MB, 1)
+}
+
+function Reset-AppUsageStats {
+    param([string]$RootDir)
+    $path = Get-AppUsageStorePath -RootDir $RootDir
+    if (Test-Path $path) { Remove-Item $path -Force }
+}
+
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats

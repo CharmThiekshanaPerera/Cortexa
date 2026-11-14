@@ -53,6 +53,8 @@ foreach ($d in $health.Disks) {
 $net = Get-NetworkStats
 Write-Log ("NET: sent={0}MB recv={1}MB" -f [math]::Round($net.TotalSentBytes / 1MB, 2), [math]::Round($net.TotalReceivedBytes / 1MB, 2))
 
+Add-AppUsageSample -RootDir $RootDir -MinutesElapsed 15
+
 $alerts = @()
 
 if (@($cfg.CustomRules).Count -gt 0) {
