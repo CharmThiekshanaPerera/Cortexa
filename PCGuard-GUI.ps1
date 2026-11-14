@@ -606,6 +606,19 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         </ListView>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,4">
+                    <StackPanel>
+                        <TextBlock Text="CLAUDE STORAGE MANAGER AGENT" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Sends disk free space and your biggest installed apps (with usage status) to Anthropic's Claude API for a prioritized cleanup plan - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: never deletes or uninstalls anything itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnClaudeStorageAnalyze" Content="Analyze Storage (Claude)" Background="#d97757"/>
+                        </WrapPanel>
+                        <Border x:Name="ClaudeStoragePanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+                            <TextBlock x:Name="ClaudeStorageText" Text="" TextWrapping="Wrap"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </TabItem>
 
@@ -695,6 +708,19 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                             <Canvas x:Name="NetHistoryCanvas" Background="Transparent" ClipToBounds="True"/>
                         </Border>
                         <TextBlock Text="Note: this is bandwidth/connection monitoring, not raw packet capture. Full packet-level inspection would require a capture driver (e.g. Npcap) and admin rights." Style="{StaticResource MutedText}" Margin="2,10,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,4">
+                    <StackPanel>
+                        <TextBlock Text="CLAUDE NETWORK MONITOR AGENT" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Sends the current adapter totals and active connections list to Anthropic's Claude API for analysis - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. Advisory only: reports findings, never blocks or changes anything." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnClaudeNetworkAnalyze" Content="Analyze Network (Claude)" Background="#d97757"/>
+                        </WrapPanel>
+                        <Border x:Name="ClaudeNetworkPanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+                            <TextBlock x:Name="ClaudeNetworkText" Text="" TextWrapping="Wrap"/>
+                        </Border>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -1031,6 +1057,21 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
 
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
+                        <TextBlock Text="CLAUDE (ANTHROPIC API) - OPTIONAL" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Powers two specialized agents only: the Network Monitor (Network tab) and Storage Manager (Disk Analysis tab). Everything else in Cortexa stays on the local Ollama agent. Unlike Ollama, using Claude sends data (network connections, installed app list) to Anthropic's API over the internet - nothing is sent unless you click one of those two buttons." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel>
+                            <TextBlock Text="API Key:" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                            <PasswordBox x:Name="CfgAnthropicApiKey" Width="420" Margin="0,0,8,8"/>
+                            <TextBlock Text="Model:" VerticalAlignment="Center" Margin="8,0,8,8"/>
+                            <TextBox x:Name="CfgClaudeModel" Width="180" Text="claude-sonnet-5-5" Margin="0,0,8,8"/>
+                            <Button x:Name="BtnSaveClaudeKey" Content="Save" Style="{StaticResource PrimaryButton}"/>
+                        </WrapPanel>
+                        <TextBlock x:Name="ClaudeKeyStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
                         <TextBlock Text="MONITORING RULES" Style="{StaticResource CardHeader}"/>
                         <TextBlock Text="Describe a process memory threshold in plain language and the AI will turn it into a rule the background watchdog checks every 15 minutes." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel>
@@ -1132,7 +1173,10 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'RuleInput','BtnAddRule','RuleStatus','RuleList','BtnDeleteRule',
                  'ChkAutoApproveFreeRam','ChkAutoApproveCleanTemp',
                  'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText',
-                 'BtnOpenAppsFeatures','BtnAppAiDecision','BtnAppAiAskMore','AppAiPanel','AppAiText')) {
+                 'BtnOpenAppsFeatures','BtnAppAiDecision','BtnAppAiAskMore','AppAiPanel','AppAiText',
+                 'CfgAnthropicApiKey','CfgClaudeModel','BtnSaveClaudeKey','ClaudeKeyStatusText',
+                 'BtnClaudeNetworkAnalyze','ClaudeNetworkPanel','ClaudeNetworkText',
+                 'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -1606,6 +1650,27 @@ $BtnScanFiles.Add_Click({
     $script:FileScanTimer.Start()
 })
 
+$BtnClaudeStorageAnalyze.Add_Click({
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    if (-not $cfg.AnthropicApiKey) {
+        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section).", "PCGuard") | Out-Null
+        return
+    }
+    $ClaudeStoragePanel.Visibility = 'Visible'
+    $ClaudeStorageText.Text = "Asking Claude to analyze storage (this leaves your machine)..."
+    $BtnClaudeStorageAnalyze.IsEnabled = $false
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    Start-AiJob -ScriptBlock {
+        param($mp, $apiKey, $model, $rootDir)
+        Import-Module $mp -Force
+        Invoke-ClaudeStorageAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir) -OnComplete {
+        param($result)
+        $BtnClaudeStorageAnalyze.IsEnabled = $true
+        $ClaudeStorageText.Text = if ($result.Success) { $result.Response } else { "Claude request failed: $($result.Response)" }
+    }
+})
+
 function Refresh-DiskIo {
     $io = Get-DiskIoStats
     if ($io.Available) {
@@ -1807,6 +1872,27 @@ function Draw-NetHistoryChart {
     $NetHistoryCanvas.Children.Add((New-NetSeries -Values $recvDeltas -Color '#22c55e')) | Out-Null
     $NetHistoryCanvas.Children.Add((New-NetSeries -Values $sentDeltas -Color '#22d3ee')) | Out-Null
 }
+
+$BtnClaudeNetworkAnalyze.Add_Click({
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    if (-not $cfg.AnthropicApiKey) {
+        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section).", "PCGuard") | Out-Null
+        return
+    }
+    $ClaudeNetworkPanel.Visibility = 'Visible'
+    $ClaudeNetworkText.Text = "Asking Claude to analyze network activity (this leaves your machine)..."
+    $BtnClaudeNetworkAnalyze.IsEnabled = $false
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    Start-AiJob -ScriptBlock {
+        param($mp, $apiKey, $model)
+        Import-Module $mp -Force
+        Invoke-ClaudeNetworkAnalysis -ApiKey $apiKey -Model $model
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel) -OnComplete {
+        param($result)
+        $BtnClaudeNetworkAnalyze.IsEnabled = $true
+        $ClaudeNetworkText.Text = if ($result.Success) { $result.Response } else { "Claude request failed: $($result.Response)" }
+    }
+})
 
 # ---------- Tasks tab ----------
 $script:AllTasks = @()
@@ -2418,8 +2504,18 @@ function Load-ConfigIntoUI {
     $CfgAiEnabled.IsChecked = [bool]$cfg.AiEnabled
     $ChkAutoApproveFreeRam.IsChecked = $cfg.AutoApproveActions -contains 'FreeRam'
     $ChkAutoApproveCleanTemp.IsChecked = $cfg.AutoApproveActions -contains 'CleanTemp'
+    $CfgAnthropicApiKey.Password = $cfg.AnthropicApiKey
+    $CfgClaudeModel.Text = $cfg.ClaudeModel
     Refresh-RuleList
 }
+
+$BtnSaveClaudeKey.Add_Click({
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $cfg.AnthropicApiKey = $CfgAnthropicApiKey.Password
+    $cfg.ClaudeModel = $CfgClaudeModel.Text
+    Save-PCGuardConfig -RootDir $RootDir -Config $cfg
+    $ClaudeKeyStatusText.Text = if ($cfg.AnthropicApiKey) { "Saved at $(Get-Date -Format 'HH:mm:ss')." } else { "Cleared - Claude agents will show an error until a key is added." }
+})
 
 function Refresh-RuleList {
     $cfg = Get-PCGuardConfig -RootDir $RootDir

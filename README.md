@@ -47,6 +47,15 @@ Requires [Ollama](https://ollama.com) installed with at least one model pulled (
 
 **Design principle: advisory only.** The AI never executes anything on its own — it can only suggest actions from a fixed whitelist (Free Up RAM, Clean Temp, Stop Unwanted Software, Speed Boost, Shutdown WSL, Create Restore Point), rendered as buttons you click yourself. See `DEVELOPMENT.md` for how this is enforced.
 
+### Optional: Claude (Anthropic API) for two specialized agents
+
+Everything above runs on the local Ollama model. Optionally, add an Anthropic API key in **Settings** to enable two additional, specialized agents powered by Claude instead:
+
+- **Network Monitor Agent** (Network tab) — reviews current adapter totals and active connections, flags anything unusual.
+- **Storage Manager Agent** (Disk Analysis tab) — combines disk free space with your biggest installed apps (and whether they're actually used) into a prioritized cleanup plan.
+
+**Important difference from Ollama**: using either of these sends data (network connections, installed app list) to Anthropic's cloud API over the internet. Nothing is sent unless you explicitly click one of those two buttons — everything else in Cortexa, including the main AI Agent tab, stays fully local via Ollama. The API key is stored only in your local `config.json` (never committed to this repo — it's gitignored).
+
 ## Folder layout
 
 ```

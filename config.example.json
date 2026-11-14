@@ -8,5 +8,9 @@
     "WebhookUrl":  "",
     "WebhookType":  "Slack",
     "AiEnabled":  false,
-    "AiModel":  "qwen2.5:3b"
+    "AiModel":  "qwen2.5:3b",
+    "AnthropicApiKey":  "",
+    "ClaudeModel":  "claude-sonnet-5-5",
+    "CustomRules":  [],
+    "AutoApproveActions":  []
 }

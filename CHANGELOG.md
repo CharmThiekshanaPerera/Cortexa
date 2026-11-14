@@ -2,6 +2,14 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.5 — 2026-11-14
+
+### Added — Claude (Anthropic API), optional
+- Two specialized agents now run on Claude instead of the local Ollama model, when an API key is configured in Settings: a **Network Monitor Agent** (Network tab) and a **Storage Manager Agent** (Disk Analysis tab). Everything else in Cortexa, including the main AI Agent tab, is unaffected and stays on Ollama.
+- This is the one place in Cortexa where data leaves the machine for AI purposes - both agents' UI text says so explicitly, and nothing is sent unless the corresponding button is clicked.
+- API key is entered via a masked PasswordBox and stored only in the local `config.json` (already gitignored; `config.example.json` has empty placeholders for the new fields).
+- Verified against real data before shipping: the Network Monitor correctly flagged a database service listening on all interfaces and a background service with known security issues; the Storage Manager produced a prioritized ~19GB cleanup plan and correctly noted that one app's actual data (model files) lives outside its install folder.
+
 ## v1.4.3 — 2026-11-14
 
 ### Added

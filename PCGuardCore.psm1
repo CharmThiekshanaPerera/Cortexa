@@ -188,6 +188,8 @@ function Get-PCGuardConfig {
         WebhookType              = 'Slack'
         AiEnabled                = $false
         AiModel                  = 'qwen2.5:3b'
+        AnthropicApiKey          = ''
+        ClaudeModel              = 'claude-sonnet-5-5'
         CustomRules              = @()
         AutoApproveActions       = @()
     }
@@ -1009,6 +1011,75 @@ function Invoke-AiChat {
     Invoke-OllamaGenerate -Model $Model -Prompt $UserMessage -SystemPrompt $systemPrompt -BaseUrl $BaseUrl -TimeoutSec 60
 }
 
+function Invoke-ClaudeGenerate {
+    # Calls the Anthropic Messages API directly. Unlike every Ollama-backed
+    # function in this module, this sends the prompt (and whatever system
+    # data it contains) over the internet to Anthropic - callers must make
+    # that tradeoff explicit to the user, this function does not.
+    param(
+        [string]$ApiKey,
+        [string]$Model = 'claude-sonnet-5-5',
+        [string]$Prompt,
+        [string]$SystemPrompt = '',
+        [int]$MaxTokens = 1024
+    )
+    if (-not $ApiKey) {
+        return [PSCustomObject]@{ Success = $false; Response = 'No Anthropic API key configured. Add one in Settings.' }
+    }
+    try {
+        $body = @{
+            model      = $Model
+            max_tokens = $MaxTokens
+            system     = $SystemPrompt
+            messages   = @(@{ role = 'user'; content = $Prompt })
+        } | ConvertTo-Json -Depth 6
+        $headers = @{
+            'x-api-key'         = $ApiKey
+            'anthropic-version' = '2023-06-01'
+            'content-type'      = 'application/json'
+        }
+        $result = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/messages' -Method Post -Headers $headers -Body $body -TimeoutSec 60 -ErrorAction Stop
+        $text = ($result.content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text
+        [PSCustomObject]@{ Success = $true; Response = $text }
+    } catch {
+        $msg = $_.Exception.Message
+        try {
+            $errBody = $_.ErrorDetails.Message | ConvertFrom-Json
+            if ($errBody.error.message) { $msg = $errBody.error.message }
+        } catch {}
+        [PSCustomObject]@{ Success = $false; Response = $msg }
+    }
+}
+
+function Invoke-ClaudeNetworkAnalysis {
+    # Cortexa's "Network Monitor" agent - reviews live connections/adapters
+    # for anything worth a second look. Advisory only: it reports, it never
+    # blocks a connection or changes firewall/network settings.
+    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5')
+    $net = Get-NetworkStats
+    $conns = @(Get-ActiveConnections -Top 40)
+    $adapterLines = ($net.Adapters | ForEach-Object { "$($_.Name): sent $($_.SentMB) MB, received $($_.ReceivedMB) MB" }) -join "`n"
+    $connLines = ($conns | ForEach-Object { "$($_.Process) (PID $($_.Pid)): $($_.LocalAddress):$($_.LocalPort) -> $($_.RemoteAddress):$($_.RemotePort) [$($_.State)]" }) -join "`n"
+    $prompt = "Network adapters (totals since last reset):`n$adapterLines`n`nActive connections (up to 40):`n$connLines`n`nAnalyze this network snapshot."
+    $sys = "You are Cortexa's network monitoring agent. Review the provided snapshot (adapters, active connections) and flag anything unusual or worth the user's attention - e.g. unexpected remote connections, unfamiliar processes talking to the network, high-traffic adapters. Be concise, use a short bullet list. If everything looks ordinary, say so plainly rather than inventing concerns. You cannot block, close, or change any connection or setting - only report findings for the user to act on themselves."
+    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
+}
+
+function Invoke-ClaudeStorageAnalysis {
+    # Cortexa's "Storage Manager" agent - combines disk free space with the
+    # biggest installed apps (and whether they're actually used) into one
+    # prioritized cleanup plan. Advisory only: recommends, never deletes or
+    # uninstalls anything itself.
+    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir)
+    $health = Get-SystemHealth -TopProcessCount 1
+    $diskLines = ($health.Disks | ForEach-Object { "$($_.Drive) $($_.FreePercent)% free ($($_.FreeGB) GB of $($_.SizeGB) GB)" }) -join "`n"
+    $bigApps = @(Get-CombinedAppsSummary -RootDir $RootDir -SortBy 'Size' -Top 12)
+    $appLines = ($bigApps | ForEach-Object { "$($_.Name): $($_.Size), $($_.Status)" }) -join "`n"
+    $prompt = "Disk space:`n$diskLines`n`nBiggest installed apps (with usage status):`n$appLines`n`nGive a short, prioritized storage cleanup plan."
+    $sys = "You are Cortexa's storage management agent. Given disk space and the biggest installed apps with whether each is actually used, produce a short, prioritized cleanup plan - what to consider removing first and why, focusing on big-and-unused items over big-and-used ones. Be concise, use a short list. You cannot delete or uninstall anything yourself - only recommend; the user acts via Cortexa's Apps & Features or Disk Analysis tools."
+    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
+}
+
 function Write-AiActionLog {
     # Append-only audit trail of every AI-suggested action and what the user
     # decided about it. One JSON object per line (easy to parse, easy to tail).
@@ -1425,4 +1496,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis
