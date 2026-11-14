@@ -1024,7 +1024,7 @@ function Invoke-ClaudeGenerate {
         [int]$MaxTokens = 1024
     )
     if (-not $ApiKey) {
-        return [PSCustomObject]@{ Success = $false; Response = 'No Anthropic API key configured. Add one in Settings.' }
+        return [PSCustomObject]@{ Success = $false; Response = 'No Anthropic API key configured. Add one in Settings.'; Prompt = $Prompt; SystemPrompt = $SystemPrompt }
     }
     try {
         $body = @{
@@ -1033,6 +1033,47 @@ function Invoke-ClaudeGenerate {
             system     = $SystemPrompt
             messages   = @(@{ role = 'user'; content = $Prompt })
         } | ConvertTo-Json -Depth 6
+        $headers = @{
+            'x-api-key'         = $ApiKey
+            'anthropic-version' = '2023-06-01'
+            'content-type'      = 'application/json'
+        }
+        $result = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/messages' -Method Post -Headers $headers -Body $body -TimeoutSec 60 -ErrorAction Stop
+        $text = ($result.content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text
+        [PSCustomObject]@{ Success = $true; Response = $text; Prompt = $Prompt; SystemPrompt = $SystemPrompt }
+    } catch {
+        $msg = $_.Exception.Message
+        try {
+            $errBody = $_.ErrorDetails.Message | ConvertFrom-Json
+            if ($errBody.error.message) { $msg = $errBody.error.message }
+        } catch {}
+        [PSCustomObject]@{ Success = $false; Response = $msg; Prompt = $Prompt; SystemPrompt = $SystemPrompt }
+    }
+}
+
+function Invoke-ClaudeChat {
+    # Follow-up turns for an existing Claude conversation (seeded from a
+    # Network Monitor / Storage Manager analysis). Unlike Invoke-ClaudeGenerate
+    # (always a single fresh user turn), this sends the full message history
+    # so Claude actually remembers what it already said - real multi-turn
+    # chat, not independent one-shot calls.
+    param(
+        [string]$ApiKey,
+        [string]$Model = 'claude-sonnet-5-5',
+        [array]$Messages,
+        [string]$SystemPrompt = '',
+        [int]$MaxTokens = 1024
+    )
+    if (-not $ApiKey) {
+        return [PSCustomObject]@{ Success = $false; Response = 'No Anthropic API key configured. Add one in Settings.' }
+    }
+    try {
+        $body = @{
+            model      = $Model
+            max_tokens = $MaxTokens
+            system     = $SystemPrompt
+            messages   = $Messages
+        } | ConvertTo-Json -Depth 8
         $headers = @{
             'x-api-key'         = $ApiKey
             'anthropic-version' = '2023-06-01'
@@ -1496,4 +1537,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat

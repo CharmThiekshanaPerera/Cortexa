@@ -2,6 +2,15 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.5.2 — 2026-11-14
+
+### Added
+- Real multi-turn chat under both Claude agents (Network Monitor, Storage Manager) - "Continue Conversation" lets you keep asking follow-ups until you reach a decision, with Claude actually remembering the whole conversation (full message history sent each turn via the Anthropic Messages API), not just independent one-shot calls like before. Verified with a real 2-turn test that Claude correctly recalled information from turn 1 in turn 2.
+
+### Fixed
+- Caught and fixed a real PowerShell closure bug while building this: a background-job completion callback referencing a local variable from its defining scope would have silently seen it as empty once that scope returned (confirmed via an isolated test before and after the fix). Resolved with `.GetNewClosure()`.
+- Replaced an unsafe `-replace` call that would have corrupted the display if Claude's response ever contained a literal `$` followed by digits (PowerShell would interpret it as a regex backreference) with plain string concatenation.
+
 ## v1.5.1 — 2026-11-14
 
 ### Fixed

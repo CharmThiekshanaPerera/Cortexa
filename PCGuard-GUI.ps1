@@ -713,6 +713,10 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         <Border x:Name="ClaudeNetworkPanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
                             <TextBlock x:Name="ClaudeNetworkText" Text="" TextWrapping="Wrap"/>
                         </Border>
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBox x:Name="ClaudeNetworkChatInput" Width="460" Tag="Ask a follow-up, e.g. 'should I close the mysqld connection?'" Margin="0,0,8,8"/>
+                            <Button x:Name="BtnClaudeNetworkChatSend" Content="Continue Conversation" Background="#d97757"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -881,6 +885,10 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         <Border x:Name="ClaudeStoragePanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
                             <TextBlock x:Name="ClaudeStorageText" Text="" TextWrapping="Wrap"/>
                         </Border>
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBox x:Name="ClaudeStorageChatInput" Width="460" Tag="Ask a follow-up, e.g. 'is it safe to remove Docker Desktop?'" Margin="0,0,8,8"/>
+                            <Button x:Name="BtnClaudeStorageChatSend" Content="Continue Conversation" Background="#d97757"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -1180,8 +1188,8 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText',
                  'BtnOpenAppsFeatures','BtnAppAiDecision','BtnAppAiAskMore','AppAiPanel','AppAiText',
                  'CfgAnthropicApiKey','CfgClaudeModel','BtnSaveClaudeKey','ClaudeKeyStatusText',
-                 'BtnClaudeNetworkAnalyze','ClaudeNetworkPanel','ClaudeNetworkText',
-                 'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText')) {
+                 'BtnClaudeNetworkAnalyze','ClaudeNetworkPanel','ClaudeNetworkText','ClaudeNetworkChatInput','BtnClaudeNetworkChatSend',
+                 'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText','ClaudeStorageChatInput','BtnClaudeStorageChatSend')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -1672,8 +1680,49 @@ $BtnClaudeStorageAnalyze.Add_Click({
     } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir) -OnComplete {
         param($result)
         $BtnClaudeStorageAnalyze.IsEnabled = $true
-        $ClaudeStorageText.Text = if ($result.Success) { $result.Response } else { "Claude request failed: $($result.Response)" }
+        if ($result.Success) {
+            $ClaudeStorageText.Text = $result.Response
+            $script:ClaudeStorageSystemPrompt = $result.SystemPrompt
+            $script:ClaudeStorageMessages = @(
+                @{ role = 'user'; content = $result.Prompt }
+                @{ role = 'assistant'; content = $result.Response }
+            )
+        } else {
+            $ClaudeStorageText.Text = "Claude request failed: $($result.Response)"
+        }
     }
+})
+
+$BtnClaudeStorageChatSend.Add_Click({
+    $msg = $ClaudeStorageChatInput.Text.Trim()
+    if (-not $msg) { return }
+    if (-not $script:ClaudeStorageMessages -or $script:ClaudeStorageMessages.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("Click 'Analyze Storage (Claude)' first to start the conversation.", "PCGuard") | Out-Null
+        return
+    }
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $ClaudeStorageChatInput.Text = ""
+    $script:ClaudeStorageBaseText = $ClaudeStorageText.Text
+    $ClaudeStorageText.Text = "$($script:ClaudeStorageBaseText)`n`n---`nYou: $msg`n`nClaude: thinking..."
+    $BtnClaudeStorageChatSend.IsEnabled = $false
+    $script:ClaudeStorageMessages += @{ role = 'user'; content = $msg }
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    $messagesSnapshot = $script:ClaudeStorageMessages
+    $sysSnapshot = $script:ClaudeStorageSystemPrompt
+    Start-AiJob -ScriptBlock {
+        param($mp, $apiKey, $model, $msgs, $sys)
+        Import-Module $mp -Force
+        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot) -OnComplete {
+        param($result)
+        $BtnClaudeStorageChatSend.IsEnabled = $true
+        $reply = if ($result.Success) { $result.Response } else { "(failed: $($result.Response))" }
+        $ClaudeStorageText.Text = "$($script:ClaudeStorageBaseText)`n`n---`nYou: $msg`n`nClaude: $reply"
+        if ($result.Success) {
+            $script:ClaudeStorageMessages += @{ role = 'assistant'; content = $result.Response }
+            $script:ClaudeStorageBaseText = $ClaudeStorageText.Text
+        }
+    }.GetNewClosure()
 })
 
 function Refresh-DiskIo {
@@ -1895,8 +1944,49 @@ $BtnClaudeNetworkAnalyze.Add_Click({
     } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel) -OnComplete {
         param($result)
         $BtnClaudeNetworkAnalyze.IsEnabled = $true
-        $ClaudeNetworkText.Text = if ($result.Success) { $result.Response } else { "Claude request failed: $($result.Response)" }
+        if ($result.Success) {
+            $ClaudeNetworkText.Text = $result.Response
+            $script:ClaudeNetworkSystemPrompt = $result.SystemPrompt
+            $script:ClaudeNetworkMessages = @(
+                @{ role = 'user'; content = $result.Prompt }
+                @{ role = 'assistant'; content = $result.Response }
+            )
+        } else {
+            $ClaudeNetworkText.Text = "Claude request failed: $($result.Response)"
+        }
     }
+})
+
+$BtnClaudeNetworkChatSend.Add_Click({
+    $msg = $ClaudeNetworkChatInput.Text.Trim()
+    if (-not $msg) { return }
+    if (-not $script:ClaudeNetworkMessages -or $script:ClaudeNetworkMessages.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("Click 'Analyze Network (Claude)' first to start the conversation.", "PCGuard") | Out-Null
+        return
+    }
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $ClaudeNetworkChatInput.Text = ""
+    $script:ClaudeNetworkBaseText = $ClaudeNetworkText.Text
+    $ClaudeNetworkText.Text = "$($script:ClaudeNetworkBaseText)`n`n---`nYou: $msg`n`nClaude: thinking..."
+    $BtnClaudeNetworkChatSend.IsEnabled = $false
+    $script:ClaudeNetworkMessages += @{ role = 'user'; content = $msg }
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    $messagesSnapshot = $script:ClaudeNetworkMessages
+    $sysSnapshot = $script:ClaudeNetworkSystemPrompt
+    Start-AiJob -ScriptBlock {
+        param($mp, $apiKey, $model, $msgs, $sys)
+        Import-Module $mp -Force
+        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot) -OnComplete {
+        param($result)
+        $BtnClaudeNetworkChatSend.IsEnabled = $true
+        $reply = if ($result.Success) { $result.Response } else { "(failed: $($result.Response))" }
+        $ClaudeNetworkText.Text = "$($script:ClaudeNetworkBaseText)`n`n---`nYou: $msg`n`nClaude: $reply"
+        if ($result.Success) {
+            $script:ClaudeNetworkMessages += @{ role = 'assistant'; content = $result.Response }
+            $script:ClaudeNetworkBaseText = $ClaudeNetworkText.Text
+        }
+    }.GetNewClosure()
 })
 
 # ---------- Tasks tab ----------
@@ -2149,6 +2239,12 @@ $BtnAppAiAskMore.Add_Click({
 # ---------- AI Agent tab ----------
 $script:AiMessages = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
 $script:LastSuggestedActions = @()
+$script:ClaudeNetworkMessages = @()
+$script:ClaudeNetworkSystemPrompt = ''
+$script:ClaudeNetworkBaseText = ''
+$script:ClaudeStorageMessages = @()
+$script:ClaudeStorageSystemPrompt = ''
+$script:ClaudeStorageBaseText = ''
 $ChatItems.ItemsSource = $script:AiMessages
 
 function Add-ChatMessage {
