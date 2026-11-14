@@ -1121,6 +1121,17 @@ function Invoke-ClaudeStorageAnalysis {
     Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
 }
 
+function Get-ListeningServices {
+    # Every process with a port in Listen state - the actual security-relevant
+    # attack surface (what's reachable, not just what's currently connected).
+    # Deliberately samples a large pool from Get-ActiveConnections BEFORE
+    # filtering, since that function's own -Top limits the RAW connection
+    # list before filtering/sorting - passing a small Top here would silently
+    # drop real listening services that weren't in an arbitrary early slice.
+    param([int]$Top = 100)
+    @(Get-ActiveConnections -Top 500 | Where-Object { $_.State -eq 'Listen' } | Sort-Object Process, LocalPort | Select-Object -First $Top)
+}
+
 function Invoke-ClaudeSecurityAnalysis {
     # Cortexa's "Security Monitor" agent - reviews firewall, antivirus,
     # encryption, driver-error, and listening-service configuration for
@@ -1133,7 +1144,7 @@ function Invoke-ClaudeSecurityAnalysis {
     param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5')
     $status = Get-SecurityStatus
     $diskHealth = @(Get-DiskHealth)
-    $listening = @(Get-ActiveConnections -Top 60 | Where-Object { $_.State -eq 'Listen' })
+    $listening = Get-ListeningServices -Top 100
 
     $defenderLine = "Windows Defender enabled: $($status.DefenderEnabled); real-time protection: $($status.RealTimeProtection); signature age: $($status.SignaturesAge) day(s)"
     $firewallLine = ($status.Firewall | ForEach-Object { "$($_.Name)=$(if ($_.Enabled) { 'On' } else { 'Off' })" }) -join ', '
@@ -1563,4 +1574,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices

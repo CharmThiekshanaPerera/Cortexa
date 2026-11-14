@@ -2,6 +2,14 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.1 — 2026-11-14
+
+### Added
+- Security tab now shows the actual data the Claude Security Monitor Agent analyzes, instead of only sending it silently: a new "Listening Services (Attack Surface)" list (process, PID, local address, port) and a "Quick Access" card with one-click shortcuts to Windows Firewall, BitLocker, Device Manager, and Windows Security settings — so findings can be acted on immediately.
+
+### Fixed
+- `Invoke-ClaudeSecurityAnalysis` was missing real listening services because `Get-ActiveConnections -Top 60` caps the *raw, unsorted* connection list before filtering for `State -eq 'Listen'` — a service could be filtered out simply for not being in the first 60 raw rows. New `Get-ListeningServices` function samples a much larger pool (Top 500) before filtering/sorting. Verified against real data: old method found 14 listening services, new method found 40.
+
 ## v1.6 — 2026-11-14
 
 ### Added

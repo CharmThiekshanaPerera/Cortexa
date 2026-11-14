@@ -830,6 +830,36 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="LISTENING SERVICES (ATTACK SURFACE)" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Every process with an open port in Listen state - what's actually reachable on this PC, not just active connections. This is exactly the data sent to the Claude Security Monitor Agent below." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <ListView x:Name="ListeningServicesList" Height="180">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Process" Width="180" DisplayMemberBinding="{Binding Process}"/>
+                                    <GridViewColumn Header="PID" Width="70" DisplayMemberBinding="{Binding Pid}"/>
+                                    <GridViewColumn Header="Local Address" Width="150" DisplayMemberBinding="{Binding LocalAddress}"/>
+                                    <GridViewColumn Header="Port" Width="80" DisplayMemberBinding="{Binding LocalPort}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock x:Name="ListeningStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="QUICK ACCESS (ACT ON FINDINGS)" Style="{StaticResource CardHeader}"/>
+                        <WrapPanel>
+                            <Button x:Name="BtnOpenFirewallSettings" Content="Open Windows Firewall"/>
+                            <Button x:Name="BtnOpenBitLockerSettings" Content="Open BitLocker Settings"/>
+                            <Button x:Name="BtnOpenDeviceManager" Content="Open Device Manager"/>
+                            <Button x:Name="BtnOpenWindowsSecurity" Content="Open Windows Security"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource Card}" Margin="0,0,0,4">
                     <StackPanel>
                         <TextBlock Text="CLAUDE SECURITY MONITOR AGENT" Style="{StaticResource CardHeader}"/>
@@ -1207,7 +1237,9 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'CfgAnthropicApiKey','CfgClaudeModel','BtnSaveClaudeKey','ClaudeKeyStatusText',
                  'BtnClaudeNetworkAnalyze','ClaudeNetworkPanel','ClaudeNetworkText','ClaudeNetworkChatInput','BtnClaudeNetworkChatSend',
                  'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText','ClaudeStorageChatInput','BtnClaudeStorageChatSend',
-                 'BtnClaudeSecurityAnalyze','ClaudeSecurityPanel','ClaudeSecurityText','ClaudeSecurityChatInput','BtnClaudeSecurityChatSend')) {
+                 'BtnClaudeSecurityAnalyze','ClaudeSecurityPanel','ClaudeSecurityText','ClaudeSecurityChatInput','BtnClaudeSecurityChatSend',
+                 'ListeningServicesList','ListeningStatusText',
+                 'BtnOpenFirewallSettings','BtnOpenBitLockerSettings','BtnOpenDeviceManager','BtnOpenWindowsSecurity')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -2155,9 +2187,17 @@ function Refresh-SecurityTab {
     } else {
         $PnpErrorList.ItemsSource = ,$pnpErrors
     }
+
+    $ListeningServicesList.ItemsSource = $null
+    $ListeningServicesList.ItemsSource = @(Get-ListeningServices -Top 100)
+    $ListeningStatusText.Text = "Showing $($ListeningServicesList.Items.Count) listening ports. This is exactly the data the Claude Security Monitor Agent analyzes below."
 }
 
 $BtnSecurityRefresh.Add_Click({ Refresh-SecurityTab })
+$BtnOpenFirewallSettings.Add_Click({ Start-Process "control.exe" -ArgumentList "firewall.cpl" })
+$BtnOpenBitLockerSettings.Add_Click({ Start-Process "control.exe" -ArgumentList "/name Microsoft.BitLockerDriveEncryption" })
+$BtnOpenDeviceManager.Add_Click({ Start-Process "devmgmt.msc" })
+$BtnOpenWindowsSecurity.Add_Click({ Start-Process "windowsdefender:" })
 
 $BtnClaudeSecurityAnalyze.Add_Click({
     $cfg = Get-PCGuardConfig -RootDir $RootDir
