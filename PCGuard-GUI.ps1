@@ -829,7 +829,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                             <Button x:Name="BtnOpenAppsFeatures" Content="Open Apps &amp; Features (to uninstall)"/>
                             <Button x:Name="BtnResetUsage" Content="Reset Usage Data" Style="{StaticResource WarningButton}"/>
                         </WrapPanel>
-                        <ListView x:Name="AppUsageList" Height="460">
+                        <ListView x:Name="AppUsageList" Height="380">
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn Header="App" Width="230" DisplayMemberBinding="{Binding Name}"/>
@@ -841,6 +841,15 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                             </ListView.View>
                         </ListView>
                         <TextBlock x:Name="AppUsageStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
+
+                        <TextBlock Text="AI DECISION HELP (SELECT AN APP ABOVE FIRST)" Style="{StaticResource CardHeader}" Margin="0,16,0,8"/>
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnAppAiDecision" Content="Ask AI: Keep or Delete?" Background="#8b5cf6"/>
+                            <Button x:Name="BtnAppAiAskMore" Content="Ask a Follow-up Question (opens chat)"/>
+                        </WrapPanel>
+                        <Border x:Name="AppAiPanel" Background="{StaticResource CardAltBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+                            <TextBlock x:Name="AppAiText" Text="" TextWrapping="Wrap"/>
+                        </Border>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -1123,7 +1132,7 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'RuleInput','BtnAddRule','RuleStatus','RuleList','BtnDeleteRule',
                  'ChkAutoApproveFreeRam','ChkAutoApproveCleanTemp',
                  'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText',
-                 'BtnOpenAppsFeatures')) {
+                 'BtnOpenAppsFeatures','BtnAppAiDecision','BtnAppAiAskMore','AppAiPanel','AppAiText')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -2015,6 +2024,35 @@ $BtnCalcSizes.Add_Click({
         }
     } -ArgumentList @($modelPath, $targets)
     $script:SizeCalcTimer.Start()
+})
+
+$BtnAppAiDecision.Add_Click({
+    $sel = $AppUsageList.SelectedItem
+    if (-not $sel) { [System.Windows.MessageBox]::Show("Select an app from the list first.", "PCGuard") | Out-Null; return }
+    if (-not $AiModelCombo.SelectedItem) { [System.Windows.MessageBox]::Show("No Ollama model available. Open the AI Agent tab and click Refresh Status (start Ollama first if needed).", "PCGuard") | Out-Null; return }
+    $AppAiPanel.Visibility = 'Visible'
+    $AppAiText.Text = "Asking AI about '$($sel.Name)'..."
+    $BtnAppAiDecision.IsEnabled = $false
+    $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
+    $model = $AiModelCombo.SelectedItem.ToString()
+    Start-AiJob -ScriptBlock {
+        param($mp, $m, $name, $publisher, $status, $size, $lastSeen)
+        Import-Module $mp -Force
+        Invoke-AiAppDecision -Model $m -Name $name -Publisher $publisher -Status $status -Size $size -LastSeen $lastSeen
+    } -ArgumentList @($modelPath, $model, $sel.Name, $sel.Publisher, $sel.Status, $sel.Size, $sel.LastSeen) -OnComplete {
+        param($result)
+        $BtnAppAiDecision.IsEnabled = $true
+        $AppAiText.Text = if ($result.Success) { $result.Response } else { "Could not reach Ollama: $($result.Response)" }
+    }
+})
+
+$BtnAppAiAskMore.Add_Click({
+    $sel = $AppUsageList.SelectedItem
+    if (-not $sel) { [System.Windows.MessageBox]::Show("Select an app from the list first.", "PCGuard") | Out-Null; return }
+    $ChatInput.Text = "About the app '$($sel.Name)' (publisher: $($sel.Publisher), size: $($sel.Size), status: $($sel.Status), last seen: $($sel.LastSeen)) - "
+    Switch-ToTab -TabName 'AI Agent' | Out-Null
+    $ChatInput.Focus() | Out-Null
+    $ChatInput.CaretIndex = $ChatInput.Text.Length
 })
 
 # ---------- AI Agent tab ----------

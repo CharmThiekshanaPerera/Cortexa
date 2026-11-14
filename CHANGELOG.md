@@ -2,6 +2,12 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.4.3 — 2026-11-14
+
+### Added
+- AI decision help on the App Usage tab: select any app, click "Ask AI: Keep or Delete?" for a short Keep / Consider Uninstalling recommendation based on size, publisher, and last-used date (advisory only - still never uninstalls anything itself, "Open Apps & Features" remains the only action path).
+- "Ask a Follow-up Question" button pre-fills the AI Agent tab's chat with the selected app's context and switches you there, so you can keep asking anything about it using the existing chat rather than a separate new input.
+
 ## v1.4.2 — 2026-11-14
 
 ### Added
