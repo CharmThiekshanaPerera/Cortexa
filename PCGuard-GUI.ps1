@@ -794,12 +794,75 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         <TextBlock Text="PROTECTION STATUS" Style="{StaticResource CardHeader}"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnSecurityRefresh" Content="Refresh" Style="{StaticResource PrimaryButton}"/>
+                            <CheckBox x:Name="ChkSecurityAuto" Content="Live auto-refresh (15s)" VerticalAlignment="Center" Margin="10,10,0,0"/>
                         </WrapPanel>
                         <TextBlock x:Name="DefenderStatusText" Text="--" Margin="0,2"/>
                         <TextBlock x:Name="FirewallStatusText" Text="--" Margin="0,2"/>
                         <TextBlock x:Name="BitLockerStatusText" Text="--" Margin="0,2" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="REALTIME SECURITY MONITORING (LAST 24H)" Style="{StaticResource CardHeader}"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="FAILED LOGONS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="FailedLogonsText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="SUCCESSFUL LOGONS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="SuccessfulLogonsText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource StatTile}">
+                                <StackPanel>
+                                    <TextBlock Text="DEFENDER DETECTIONS" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="DefenderDetectionsText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="3" Style="{StaticResource StatTile}" Margin="0,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="NEW SERVICES" Style="{StaticResource StatLabel}"/>
+                                    <TextBlock x:Name="NewServicesText" Text="--" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Border Width="10" Height="10" Background="#ef4444" CornerRadius="5" Margin="0,0,5,0"/>
+                            <TextBlock Text="Failed logons (per refresh)" Style="{StaticResource MutedText}" Margin="0,0,14,0"/>
+                            <Border Width="10" Height="10" Background="#22d3ee" CornerRadius="5" Margin="0,0,5,0"/>
+                            <TextBlock Text="Listening ports (per refresh)" Style="{StaticResource MutedText}"/>
+                        </StackPanel>
+                        <Border Background="{StaticResource CardAltBrush}" CornerRadius="8" Height="80">
+                            <Canvas x:Name="SecurityTrendCanvas" Background="Transparent" ClipToBounds="True"/>
+                        </Border>
+                        <TextBlock Text="This trend builds live from each refresh while Cortexa is open (not a stored history yet) - turn on auto-refresh above to watch it fill in." Style="{StaticResource MutedText}" Margin="2,8,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="SECURITY EVENT LOG (LAST 24H)" Style="{StaticResource CardHeader}"/>
+                        <TextBlock Text="Logon attempts, account/group changes, firewall/Defender changes, and new services - read directly from Windows' own Security, Defender, and System event logs. Some categories (e.g. account management) only appear if that auditing is enabled on this PC; logon success/failure is captured by default." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <ListView x:Name="SecurityEventLogList" Height="200">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Time" Width="130" DisplayMemberBinding="{Binding Time}"/>
+                                    <GridViewColumn Header="Category" Width="190" DisplayMemberBinding="{Binding Category}"/>
+                                    <GridViewColumn Header="Log" Width="110" DisplayMemberBinding="{Binding Log}"/>
+                                    <GridViewColumn Header="Message" Width="330" DisplayMemberBinding="{Binding Message}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                        <TextBlock x:Name="SecurityEventLogStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Text="DISK HEALTH" Style="{StaticResource CardHeader}"/>
@@ -863,7 +926,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                 <Border Style="{StaticResource Card}" Margin="0,0,0,4">
                     <StackPanel>
                         <TextBlock Text="CLAUDE SECURITY MONITOR AGENT" Style="{StaticResource CardHeader}"/>
-                        <TextBlock Text="Sends your firewall/Defender/BitLocker status, driver errors, and listening services to Anthropic's Claude API for a vulnerability review - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. It has no access to live CVE databases - it reviews configuration risks it can actually see, not unpatched-software claims. Advisory only: never changes any setting itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Sends your firewall/Defender/BitLocker status, driver errors, listening services, and the last 24h of security events (above) to Anthropic's Claude API for a vulnerability review - unlike the rest of Cortexa's AI, this leaves your machine. Requires an API key in Settings. It has no access to live CVE databases - it reviews configuration risks and event patterns it can actually see, not unpatched-software claims. Advisory only: never changes any setting itself." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel Margin="0,0,0,8">
                             <Button x:Name="BtnClaudeSecurityAnalyze" Content="Analyze Security (Claude)" Background="#d97757"/>
                         </WrapPanel>
@@ -1239,7 +1302,9 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText','ClaudeStorageChatInput','BtnClaudeStorageChatSend',
                  'BtnClaudeSecurityAnalyze','ClaudeSecurityPanel','ClaudeSecurityText','ClaudeSecurityChatInput','BtnClaudeSecurityChatSend',
                  'ListeningServicesList','ListeningStatusText',
-                 'BtnOpenFirewallSettings','BtnOpenBitLockerSettings','BtnOpenDeviceManager','BtnOpenWindowsSecurity')) {
+                 'BtnOpenFirewallSettings','BtnOpenBitLockerSettings','BtnOpenDeviceManager','BtnOpenWindowsSecurity',
+                 'ChkSecurityAuto','FailedLogonsText','SuccessfulLogonsText','DefenderDetectionsText','NewServicesText',
+                 'SecurityTrendCanvas','SecurityEventLogList','SecurityEventLogStatusText')) {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
 
@@ -1293,6 +1358,8 @@ $script:LiveDown = New-Object 'System.Collections.Generic.List[double]'
 $script:LiveUp = New-Object 'System.Collections.Generic.List[double]'
 $script:LiveDiskRead = New-Object 'System.Collections.Generic.List[double]'
 $script:LiveDiskWrite = New-Object 'System.Collections.Generic.List[double]'
+$script:LiveFailedLogons = New-Object 'System.Collections.Generic.List[double]'
+$script:LiveListeningPorts = New-Object 'System.Collections.Generic.List[double]'
 
 function Set-BarColor {
     param($Bar, [double]$FreePercent)
@@ -2191,9 +2258,33 @@ function Refresh-SecurityTab {
     $ListeningServicesList.ItemsSource = $null
     $ListeningServicesList.ItemsSource = @(Get-ListeningServices -Top 100)
     $ListeningStatusText.Text = "Showing $($ListeningServicesList.Items.Count) listening ports. This is exactly the data the Claude Security Monitor Agent analyzes below."
+
+    $stats = Get-SecurityStatsSnapshot
+    $FailedLogonsText.Text = $stats.FailedLogons
+    $SuccessfulLogonsText.Text = $stats.SuccessfulLogons
+    $DefenderDetectionsText.Text = $stats.DefenderDetections
+    $NewServicesText.Text = $stats.NewServices
+
+    Add-RollingPoint -List $script:LiveFailedLogons -Value $stats.FailedLogons
+    Add-RollingPoint -List $script:LiveListeningPorts -Value $stats.ListeningPorts
+    Draw-Sparkline -Canvas $SecurityTrendCanvas -Series @($script:LiveFailedLogons, $script:LiveListeningPorts) -Colors @('#ef4444', '#22d3ee')
+
+    $events = @(Get-SecurityEventLog -Hours 24 -Top 40)
+    $SecurityEventLogList.ItemsSource = $null
+    if ($events.Count -eq 0) {
+        $SecurityEventLogList.ItemsSource = @([PSCustomObject]@{ Time = ''; Category = 'No security events in the last 24h'; Log = ''; Message = 'Logon success/failure is captured by default; other categories need auditing enabled on this PC.' })
+    } else {
+        $SecurityEventLogList.ItemsSource = @($events)
+    }
+    $SecurityEventLogStatusText.Text = "Showing $($events.Count) event(s) from the last 24h. This feeds directly into the Claude Security Monitor Agent below."
 }
 
 $BtnSecurityRefresh.Add_Click({ Refresh-SecurityTab })
+
+$securityTimer = New-Object System.Windows.Threading.DispatcherTimer
+$securityTimer.Interval = [TimeSpan]::FromSeconds(15)
+$securityTimer.Add_Tick({ if ($ChkSecurityAuto.IsChecked) { Refresh-SecurityTab } })
+$securityTimer.Start()
 $BtnOpenFirewallSettings.Add_Click({ Start-Process "control.exe" -ArgumentList "firewall.cpl" })
 $BtnOpenBitLockerSettings.Add_Click({ Start-Process "control.exe" -ArgumentList "/name Microsoft.BitLockerDriveEncryption" })
 $BtnOpenDeviceManager.Add_Click({ Start-Process "devmgmt.msc" })

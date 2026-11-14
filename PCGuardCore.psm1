@@ -1132,6 +1132,77 @@ function Get-ListeningServices {
     @(Get-ActiveConnections -Top 500 | Where-Object { $_.State -eq 'Listen' } | Sort-Object Process, LocalPort | Select-Object -First $Top)
 }
 
+function Get-SecurityEventLog {
+    # Realtime security monitoring data source: events Windows already
+    # records as they happen (logons, account/group changes, firewall and
+    # Defender changes, new services) - no packet capture or custom driver
+    # needed. Each log is queried independently so one log having no
+    # matches (e.g. account-management auditing not enabled) doesn't wipe
+    # out results from the others - Get-WinEvent throws when a query finds
+    # zero matches, so each is its own try/catch.
+    param([int]$Hours = 24, [int]$Top = 40)
+    $since = (Get-Date).AddHours(-$Hours)
+    $events = @()
+
+    try {
+        $events += Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = 4625, 4624, 4740, 4720, 4732, 4946, 4950, 4954; StartTime = $since } -MaxEvents 200 -ErrorAction Stop
+    } catch {}
+    try {
+        $events += Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116, 1117, 5007; StartTime = $since } -MaxEvents 200 -ErrorAction Stop
+    } catch {}
+    try {
+        $events += Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 7045; StartTime = $since } -MaxEvents 200 -ErrorAction Stop
+    } catch {}
+
+    @($events | Sort-Object TimeCreated -Descending | Select-Object -First $Top | ForEach-Object {
+        $category = switch ($_.Id) {
+            4625 { 'Failed logon attempt' }
+            4624 { 'Successful logon' }
+            4740 { 'Account lockout' }
+            4720 { 'User account created' }
+            4732 { 'User added to security group' }
+            4946 { 'Firewall exception rule added' }
+            4950 { 'Firewall setting changed' }
+            4954 { 'Firewall policy changed' }
+            1116 { 'Defender detected a threat' }
+            1117 { 'Defender took action on a threat' }
+            5007 { 'Defender configuration changed' }
+            7045 { 'New service installed' }
+            default { "Event $($_.Id)" }
+        }
+        [PSCustomObject]@{
+            Time     = $_.TimeCreated
+            EventId  = $_.Id
+            Log      = $_.LogName
+            Category = $category
+            Message  = (($_.Message -split "`r?`n")[0])
+        }
+    })
+}
+
+function Get-SecurityStatsSnapshot {
+    # Rollup counts for the Security tab's stat tiles and trend chart - one
+    # snapshot per refresh, which the GUI appends to a rolling in-memory
+    # series to build the "realtime" trend without needing its own log file.
+    param([int]$Hours = 24)
+    $status = Get-SecurityStatus
+    $listening = @(Get-ListeningServices -Top 100)
+    $events = @(Get-SecurityEventLog -Hours $Hours -Top 200)
+
+    [PSCustomObject]@{
+        Timestamp             = Get-Date
+        FailedLogons          = @($events | Where-Object { $_.EventId -eq 4625 }).Count
+        SuccessfulLogons      = @($events | Where-Object { $_.EventId -eq 4624 }).Count
+        DefenderDetections    = @($events | Where-Object { $_.EventId -in 1116, 1117 }).Count
+        FirewallChanges       = @($events | Where-Object { $_.EventId -in 4946, 4950, 4954 }).Count
+        NewServices           = @($events | Where-Object { $_.EventId -eq 7045 }).Count
+        ListeningPorts        = $listening.Count
+        FirewallProfilesOn    = @($status.Firewall | Where-Object { $_.Enabled }).Count
+        FirewallProfilesTotal = $status.Firewall.Count
+        BitLockerProtected    = @($status.BitLocker | Where-Object { $_.ProtectionStatus -eq 'On' }).Count
+    }
+}
+
 function Invoke-ClaudeSecurityAnalysis {
     # Cortexa's "Security Monitor" agent - reviews firewall, antivirus,
     # encryption, driver-error, and listening-service configuration for
@@ -1145,6 +1216,8 @@ function Invoke-ClaudeSecurityAnalysis {
     $status = Get-SecurityStatus
     $diskHealth = @(Get-DiskHealth)
     $listening = Get-ListeningServices -Top 100
+    $events = @(Get-SecurityEventLog -Hours 24 -Top 30)
+    $stats = Get-SecurityStatsSnapshot
 
     $defenderLine = "Windows Defender enabled: $($status.DefenderEnabled); real-time protection: $($status.RealTimeProtection); signature age: $($status.SignaturesAge) day(s)"
     $firewallLine = ($status.Firewall | ForEach-Object { "$($_.Name)=$(if ($_.Enabled) { 'On' } else { 'Off' })" }) -join ', '
@@ -1152,9 +1225,11 @@ function Invoke-ClaudeSecurityAnalysis {
     $pnpLine = if ($status.PnpErrors.Count -gt 0) { ($status.PnpErrors | ForEach-Object { $_.FriendlyName }) -join ', ' } else { 'None' }
     $diskHealthLine = ($diskHealth | ForEach-Object { "$($_.FriendlyName): $($_.HealthStatus)" }) -join '; '
     $listenLines = ($listening | ForEach-Object { "$($_.Process) (PID $($_.Pid)) listening on $($_.LocalAddress):$($_.LocalPort)" }) -join "`n"
+    $statsLine = "Last 24h: $($stats.FailedLogons) failed logon attempt(s), $($stats.SuccessfulLogons) successful logon(s), $($stats.DefenderDetections) Defender detection(s), $($stats.FirewallChanges) firewall setting change(s), $($stats.NewServices) new service(s) installed."
+    $eventLines = if ($events.Count -gt 0) { ($events | ForEach-Object { "[$($_.Time)] $($_.Category): $($_.Message)" }) -join "`n" } else { 'No security events recorded in the last 24h (or account-management/object-access auditing is not enabled on this PC - logon success/failure is still captured where shown above).' }
 
-    $prompt = "Security snapshot:`nFirewall profiles: $firewallLine`n$defenderLine`nBitLocker: $bitlockerLine`nDevices with driver errors: $pnpLine`nDisk health: $diskHealthLine`n`nServices currently listening for network connections:`n$listenLines`n`nReview this for security vulnerabilities and misconfigurations."
-    $sys = "You are Cortexa's security monitoring agent. Review firewall, antivirus, encryption, and listening-services configuration for weaknesses - e.g. a firewall profile disabled, real-time protection off, stale virus signatures, BitLocker not enabled, a service listening on all interfaces (0.0.0.0 or :::) that should be localhost-only. You do NOT have access to live CVE databases - never invent specific CVE numbers or claim knowledge of unpatched software vulnerabilities; stick to configuration-level risks visible in the data given. Be concise, use a short bullet list prioritized by severity. If everything looks fine, say so plainly rather than inventing concerns. You cannot change any setting yourself - only report and recommend."
+    $prompt = "Security snapshot:`nFirewall profiles: $firewallLine`n$defenderLine`nBitLocker: $bitlockerLine`nDevices with driver errors: $pnpLine`nDisk health: $diskHealthLine`n`n$statsLine`n`nRecent security events (last 24h, most recent first):`n$eventLines`n`nServices currently listening for network connections:`n$listenLines`n`nReview this for security vulnerabilities, misconfigurations, and any suspicious patterns in the event log (e.g. repeated failed logons could indicate a brute-force attempt)."
+    $sys = "You are Cortexa's security monitoring agent. Review firewall, antivirus, encryption, listening-services configuration, and the recent Windows security event log for weaknesses or suspicious activity - e.g. a firewall profile disabled, real-time protection off, stale virus signatures, BitLocker not enabled, a service listening on all interfaces (0.0.0.0 or :::) that should be localhost-only, or a cluster of failed logon attempts that could indicate a brute-force attempt. You do NOT have access to live CVE databases - never invent specific CVE numbers or claim knowledge of unpatched software vulnerabilities; stick to configuration-level risks and event patterns actually visible in the data given. Be concise, use a short bullet list prioritized by severity. If everything looks fine, say so plainly rather than inventing concerns. You cannot change any setting yourself - only report and recommend."
     Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
 }
 
@@ -1574,4 +1649,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot

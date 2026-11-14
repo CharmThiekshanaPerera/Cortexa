@@ -2,6 +2,13 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.2 — 2026-11-14
+
+### Added
+- **Realtime Security Monitoring** on the Security tab: a new stats row (Failed Logons / Successful Logons / Defender Detections / New Services, last 24h), a live trend chart (failed logons + listening port count, builds up each refresh), and a Security Event Log list reading directly from Windows' own Security, Defender, and System event logs (logon attempts, account/group changes, firewall/Defender changes, new services installed) — no custom driver or packet capture needed. "Live auto-refresh (15s)" checkbox added next to the existing Refresh button for continuous monitoring while the tab is open.
+- The Claude Security Monitor Agent now receives this same event log and stats data (in addition to firewall/Defender/BitLocker/listening services), and is explicitly asked to flag suspicious patterns like a cluster of failed logon attempts — still never invents specific CVE numbers.
+- New core functions `Get-SecurityEventLog` and `Get-SecurityStatsSnapshot`, each log queried independently so one log having no matches (e.g. account-management auditing not enabled) doesn't suppress results from the others.
+
 ## v1.6.1 — 2026-11-14
 
 ### Added
