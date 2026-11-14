@@ -59,6 +59,8 @@ Each of these three has a **"Continue Conversation"** box so you can keep asking
 
 **Important difference from Ollama**: using any of these sends data (network connections, installed app list, security configuration) to Anthropic's cloud API over the internet. Nothing is sent unless you explicitly click one of those buttons — everything else in Cortexa, including the main AI Agent tab, stays fully local via Ollama. The API key is stored only in your local `config.json` (never committed to this repo — it's gitignored).
 
+**Token usage and limits**: Settings shows how many tokens these three agents have used today / this month / all-time, and lets you set a monthly cap (0 = unlimited). Once the cap is hit, the agents refuse new calls with no charge until you raise it or switch providers. **AI Provider** in Settings lets you run the one-shot "Analyze" button on these three tabs against the local Ollama model instead of Claude — no key, no cost, no limit (multi-turn "Continue Conversation" still needs Claude).
+
 ## Folder layout
 
 ```

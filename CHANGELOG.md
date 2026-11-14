@@ -2,6 +2,16 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.5 — 2026-11-14
+
+### Added
+- **Claude token usage tracking**: every real Claude API call (analysis or chat, across all three agents) now logs its input/output token cost to `logs\claude_token_usage.log`. Settings shows Today / This month / All-time totals with a Refresh button.
+- **Monthly token limit**: set a cap in Settings (0 = unlimited, the default). Once this calendar month's usage reaches it, the three Claude agents refuse new calls with a clear message and make no API request at all (no charge) - checked before every call, not just an afterwards warning. Verified: with the limit artificially set below actual usage, the call returned instantly with the limit message instead of hitting the network.
+- **AI Provider switch**: a new Settings control lets you run the Network Monitor, Storage Manager, and Security Monitor agents' one-shot "Analyze" button on the local Ollama model instead of Claude - no API key, no data leaves the machine, no token limit. Multi-turn "Continue Conversation" still requires Claude (clearly messaged if you try it while on Ollama).
+- **Model switcher**: the Claude model field is now an editable dropdown with the current model family (`claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5`, `claude-fable-5-2`) alongside the existing free-text option.
+- **Clear API Key button**: explicit one-click way to remove the stored key, alongside the existing "select all and retype" way to change it. Settings text now also correctly says three agents (was two, missed when Security Monitor shipped).
+- New core functions: `Add-ClaudeTokenUsageSample`, `Get-ClaudeTokenUsageSummary`, `Test-ClaudeTokenLimit`. `Invoke-ClaudeGenerate`/`Invoke-ClaudeChat` gained optional `-RootDir`/`-Agent` params (usage logging + limit check when supplied); `Invoke-ClaudeNetworkAnalysis`/`StorageAnalysis`/`SecurityAnalysis` gained `-Provider`/`-OllamaModel` to route to Ollama instead of Claude.
+
 ## v1.6.4 — 2026-11-14
 
 ### Added

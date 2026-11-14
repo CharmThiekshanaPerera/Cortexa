@@ -1296,15 +1296,49 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Text="CLAUDE (ANTHROPIC API) - OPTIONAL" Style="{StaticResource CardHeader}"/>
-                        <TextBlock Text="Powers two specialized agents only: the Network Monitor (Network tab) and Storage Manager (Disk Analysis tab). Everything else in Cortexa stays on the local Ollama agent. Unlike Ollama, using Claude sends data (network connections, installed app list) to Anthropic's API over the internet - nothing is sent unless you click one of those two buttons." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="Powers three specialized agents: Network Monitor (Network tab), Storage Manager (App Usage tab), and Security Monitor (Security tab). Everything else in Cortexa stays on the local Ollama agent. Unlike Ollama, using Claude sends data (network connections, installed app list, security configuration) to Anthropic's API over the internet - nothing is sent unless you click one of those agents' buttons." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel>
                             <TextBlock Text="API Key:" VerticalAlignment="Center" Margin="0,0,8,8"/>
-                            <PasswordBox x:Name="CfgAnthropicApiKey" Width="420" Margin="0,0,8,8"/>
+                            <PasswordBox x:Name="CfgAnthropicApiKey" Width="360" Margin="0,0,8,8"/>
+                            <Button x:Name="BtnClearClaudeKey" Content="Clear" Style="{StaticResource WarningButton}" Margin="0,0,8,8"/>
                             <TextBlock Text="Model:" VerticalAlignment="Center" Margin="8,0,8,8"/>
-                            <TextBox x:Name="CfgClaudeModel" Width="180" Text="claude-sonnet-5-5" Margin="0,0,8,8"/>
+                            <ComboBox x:Name="CfgClaudeModel" Width="180" IsEditable="True" Text="claude-sonnet-5-5" Margin="0,0,8,8">
+                                <ComboBoxItem Content="claude-sonnet-5-5"/>
+                                <ComboBoxItem Content="claude-opus-5-5"/>
+                                <ComboBoxItem Content="claude-haiku-5-5"/>
+                                <ComboBoxItem Content="claude-fable-5-2"/>
+                            </ComboBox>
                             <Button x:Name="BtnSaveClaudeKey" Content="Save" Style="{StaticResource PrimaryButton}"/>
                         </WrapPanel>
-                        <TextBlock x:Name="ClaudeKeyStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,4,0,0"/>
+                        <TextBlock Text="To change the key, select all the dots and type the new one, then Save. Clear removes it entirely (the three agents will then show a configuration error until a new key is added)." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="2,2,0,8"/>
+                        <TextBlock x:Name="ClaudeKeyStatusText" Text="" Style="{StaticResource MutedText}" Margin="2,0,0,12"/>
+
+                        <TextBlock Text="AI PROVIDER FOR THESE THREE AGENTS" Style="{StaticResource CardHeader}" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,4">
+                            <TextBlock Text="Provider:" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                            <ComboBox x:Name="CfgAiAgentsProvider" Width="200" SelectedIndex="0" Margin="0,0,8,8">
+                                <ComboBoxItem Content="Claude (cloud, needs API key)"/>
+                                <ComboBoxItem Content="Ollama (local, free, no limit)"/>
+                            </ComboBox>
+                        </WrapPanel>
+                        <TextBlock Text="Switch to Ollama to run these three agents on your local model instead (whichever one is selected on the AI Agent tab) - no data leaves your machine, no API key or token limit applies, but multi-turn &quot;Continue Conversation&quot; follow-ups still require Claude." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+
+                        <TextBlock Text="CLAUDE TOKEN USAGE &amp; LIMIT" Style="{StaticResource CardHeader}" Margin="0,0,0,8"/>
+                        <WrapPanel Margin="0,0,0,4">
+                            <TextBlock Text="Today:" VerticalAlignment="Center" Margin="0,0,6,8"/>
+                            <TextBlock x:Name="TokenUsageTodayText" Text="--" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,8"/>
+                            <TextBlock Text="This month:" VerticalAlignment="Center" Margin="0,0,6,8"/>
+                            <TextBlock x:Name="TokenUsageMonthText" Text="--" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,8"/>
+                            <TextBlock Text="All-time:" VerticalAlignment="Center" Margin="0,0,6,8"/>
+                            <TextBlock x:Name="TokenUsageTotalText" Text="--" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,8"/>
+                            <Button x:Name="BtnRefreshTokenUsage" Content="Refresh" Margin="0,0,0,8"/>
+                        </WrapPanel>
+                        <WrapPanel Margin="0,0,0,4">
+                            <TextBlock Text="Monthly token limit (0 = unlimited):" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                            <TextBox x:Name="CfgClaudeTokenLimit" Width="100" Text="0" Margin="0,0,8,8"/>
+                            <Button x:Name="BtnSaveTokenLimit" Content="Save Limit" Style="{StaticResource PrimaryButton}"/>
+                        </WrapPanel>
+                        <TextBlock Text="When this calendar month's usage reaches the limit, the three Claude agents refuse new calls (no charge) until the limit is raised or the provider is switched to Ollama above. Resets automatically on the 1st of each month." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="2,0,0,0"/>
                     </StackPanel>
                 </Border>
 
@@ -1412,7 +1446,9 @@ foreach ($n in @('RamText','RamBar','CpuText','CpuBar','DiskCText','DiskCBar','D
                  'ChkAutoApproveFreeRam','ChkAutoApproveCleanTemp',
                  'BtnAppUsageRefresh','AppUsageSortCombo','BtnCalcSizes','BtnResetUsage','AppUsageList','AppUsageStatusText',
                  'BtnOpenAppsFeatures','BtnAppAiDecision','BtnAppAiAskMore','AppAiPanel','AppAiText',
-                 'CfgAnthropicApiKey','CfgClaudeModel','BtnSaveClaudeKey','ClaudeKeyStatusText',
+                 'CfgAnthropicApiKey','CfgClaudeModel','BtnSaveClaudeKey','ClaudeKeyStatusText','BtnClearClaudeKey',
+                 'CfgAiAgentsProvider','TokenUsageTodayText','TokenUsageMonthText','TokenUsageTotalText','BtnRefreshTokenUsage',
+                 'CfgClaudeTokenLimit','BtnSaveTokenLimit',
                  'BtnClaudeNetworkAnalyze','ClaudeNetworkPanel','ClaudeNetworkText','ClaudeNetworkChatInput','BtnClaudeNetworkChatSend',
                  'BtnClaudeStorageAnalyze','ClaudeStoragePanel','ClaudeStorageText','ClaudeStorageChatInput','BtnClaudeStorageChatSend',
                  'BtnClaudeSecurityAnalyze','ClaudeSecurityPanel','ClaudeSecurityText','ClaudeSecurityChatInput','BtnClaudeSecurityChatSend',
@@ -1906,19 +1942,24 @@ $BtnScanFiles.Add_Click({
 
 $BtnClaudeStorageAnalyze.Add_Click({
     $cfg = Get-PCGuardConfig -RootDir $RootDir
-    if (-not $cfg.AnthropicApiKey) {
-        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section).", "PCGuard") | Out-Null
+    $useOllama = $cfg.ClaudeAgentsProvider -eq 'Ollama'
+    if (-not $useOllama -and -not $cfg.AnthropicApiKey) {
+        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section), or switch AI Provider to Ollama there.", "PCGuard") | Out-Null
+        return
+    }
+    if ($useOllama -and -not (Test-OllamaAvailable).Available) {
+        [System.Windows.MessageBox]::Show("AI Provider is set to Ollama (Settings), but Ollama isn't running. Start it from the AI Agent tab.", "PCGuard") | Out-Null
         return
     }
     $ClaudeStoragePanel.Visibility = 'Visible'
-    $ClaudeStorageText.Text = "Asking Claude to analyze storage (this leaves your machine)..."
+    $ClaudeStorageText.Text = if ($useOllama) { "Asking the local Ollama model to analyze storage..." } else { "Asking Claude to analyze storage (this leaves your machine)..." }
     $BtnClaudeStorageAnalyze.IsEnabled = $false
     $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model, $rootDir)
+        param($mp, $apiKey, $model, $rootDir, $provider, $ollamaModel)
         Import-Module $mp -Force
-        Invoke-ClaudeStorageAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir) -OnComplete {
+        Invoke-ClaudeStorageAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir -Provider $provider -OllamaModel $ollamaModel
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir, $cfg.ClaudeAgentsProvider, $cfg.AiModel) -OnComplete {
         param($result)
         $BtnClaudeStorageAnalyze.IsEnabled = $true
         if ($result.Success) {
@@ -1942,6 +1983,10 @@ $BtnClaudeStorageChatSend.Add_Click({
         return
     }
     $cfg = Get-PCGuardConfig -RootDir $RootDir
+    if ($cfg.ClaudeAgentsProvider -eq 'Ollama') {
+        [System.Windows.MessageBox]::Show("Multi-turn 'Continue Conversation' requires Claude. Switch AI Provider back to Claude in Settings to keep chatting, or just re-run the one-shot Analyze button (works with Ollama).", "PCGuard") | Out-Null
+        return
+    }
     $ClaudeStorageChatInput.Text = ""
     $script:ClaudeStorageBaseText = $ClaudeStorageText.Text
     $ClaudeStorageText.Text = "$($script:ClaudeStorageBaseText)`n`n---`nYou: $msg`n`nClaude: thinking..."
@@ -1951,10 +1996,10 @@ $BtnClaudeStorageChatSend.Add_Click({
     $messagesSnapshot = $script:ClaudeStorageMessages
     $sysSnapshot = $script:ClaudeStorageSystemPrompt
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model, $msgs, $sys)
+        param($mp, $apiKey, $model, $msgs, $sys, $rootDir)
         Import-Module $mp -Force
-        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot) -OnComplete {
+        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys -RootDir $rootDir -Agent 'Storage-Chat'
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot, $RootDir) -OnComplete {
         param($result)
         $BtnClaudeStorageChatSend.IsEnabled = $true
         $reply = if ($result.Success) { $result.Response } else { "(failed: $($result.Response))" }
@@ -2211,19 +2256,24 @@ function Draw-NetHistoryChart {
 
 $BtnClaudeNetworkAnalyze.Add_Click({
     $cfg = Get-PCGuardConfig -RootDir $RootDir
-    if (-not $cfg.AnthropicApiKey) {
-        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section).", "PCGuard") | Out-Null
+    $useOllama = $cfg.ClaudeAgentsProvider -eq 'Ollama'
+    if (-not $useOllama -and -not $cfg.AnthropicApiKey) {
+        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section), or switch AI Provider to Ollama there.", "PCGuard") | Out-Null
+        return
+    }
+    if ($useOllama -and -not (Test-OllamaAvailable).Available) {
+        [System.Windows.MessageBox]::Show("AI Provider is set to Ollama (Settings), but Ollama isn't running. Start it from the AI Agent tab.", "PCGuard") | Out-Null
         return
     }
     $ClaudeNetworkPanel.Visibility = 'Visible'
-    $ClaudeNetworkText.Text = "Asking Claude to analyze network activity (this leaves your machine)..."
+    $ClaudeNetworkText.Text = if ($useOllama) { "Asking the local Ollama model to analyze network activity..." } else { "Asking Claude to analyze network activity (this leaves your machine)..." }
     $BtnClaudeNetworkAnalyze.IsEnabled = $false
     $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model, $rootDir)
+        param($mp, $apiKey, $model, $rootDir, $provider, $ollamaModel)
         Import-Module $mp -Force
-        Invoke-ClaudeNetworkAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir) -OnComplete {
+        Invoke-ClaudeNetworkAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir -Provider $provider -OllamaModel $ollamaModel
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir, $cfg.ClaudeAgentsProvider, $cfg.AiModel) -OnComplete {
         param($result)
         $BtnClaudeNetworkAnalyze.IsEnabled = $true
         if ($result.Success) {
@@ -2247,6 +2297,10 @@ $BtnClaudeNetworkChatSend.Add_Click({
         return
     }
     $cfg = Get-PCGuardConfig -RootDir $RootDir
+    if ($cfg.ClaudeAgentsProvider -eq 'Ollama') {
+        [System.Windows.MessageBox]::Show("Multi-turn 'Continue Conversation' requires Claude. Switch AI Provider back to Claude in Settings to keep chatting, or just re-run the one-shot Analyze button (works with Ollama).", "PCGuard") | Out-Null
+        return
+    }
     $ClaudeNetworkChatInput.Text = ""
     $script:ClaudeNetworkBaseText = $ClaudeNetworkText.Text
     $ClaudeNetworkText.Text = "$($script:ClaudeNetworkBaseText)`n`n---`nYou: $msg`n`nClaude: thinking..."
@@ -2256,10 +2310,10 @@ $BtnClaudeNetworkChatSend.Add_Click({
     $messagesSnapshot = $script:ClaudeNetworkMessages
     $sysSnapshot = $script:ClaudeNetworkSystemPrompt
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model, $msgs, $sys)
+        param($mp, $apiKey, $model, $msgs, $sys, $rootDir)
         Import-Module $mp -Force
-        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot) -OnComplete {
+        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys -RootDir $rootDir -Agent 'Network-Chat'
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot, $RootDir) -OnComplete {
         param($result)
         $BtnClaudeNetworkChatSend.IsEnabled = $true
         $reply = if ($result.Success) { $result.Response } else { "(failed: $($result.Response))" }
@@ -2463,19 +2517,24 @@ $BtnOpenWindowsSecurity.Add_Click({ Start-Process "windowsdefender:" })
 
 $BtnClaudeSecurityAnalyze.Add_Click({
     $cfg = Get-PCGuardConfig -RootDir $RootDir
-    if (-not $cfg.AnthropicApiKey) {
-        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section).", "PCGuard") | Out-Null
+    $useOllama = $cfg.ClaudeAgentsProvider -eq 'Ollama'
+    if (-not $useOllama -and -not $cfg.AnthropicApiKey) {
+        [System.Windows.MessageBox]::Show("No Anthropic API key configured. Add one in Settings (Claude section), or switch AI Provider to Ollama there.", "PCGuard") | Out-Null
+        return
+    }
+    if ($useOllama -and -not (Test-OllamaAvailable).Available) {
+        [System.Windows.MessageBox]::Show("AI Provider is set to Ollama (Settings), but Ollama isn't running. Start it from the AI Agent tab.", "PCGuard") | Out-Null
         return
     }
     $ClaudeSecurityPanel.Visibility = 'Visible'
-    $ClaudeSecurityText.Text = "Asking Claude to analyze security configuration (this leaves your machine)..."
+    $ClaudeSecurityText.Text = if ($useOllama) { "Asking the local Ollama model to analyze security configuration..." } else { "Asking Claude to analyze security configuration (this leaves your machine)..." }
     $BtnClaudeSecurityAnalyze.IsEnabled = $false
     $modelPath = Join-Path $RootDir 'PCGuardCore.psm1'
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model)
+        param($mp, $apiKey, $model, $rootDir, $provider, $ollamaModel)
         Import-Module $mp -Force
-        Invoke-ClaudeSecurityAnalysis -ApiKey $apiKey -Model $model
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel) -OnComplete {
+        Invoke-ClaudeSecurityAnalysis -ApiKey $apiKey -Model $model -RootDir $rootDir -Provider $provider -OllamaModel $ollamaModel
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $RootDir, $cfg.ClaudeAgentsProvider, $cfg.AiModel) -OnComplete {
         param($result)
         $BtnClaudeSecurityAnalyze.IsEnabled = $true
         if ($result.Success) {
@@ -2499,6 +2558,10 @@ $BtnClaudeSecurityChatSend.Add_Click({
         return
     }
     $cfg = Get-PCGuardConfig -RootDir $RootDir
+    if ($cfg.ClaudeAgentsProvider -eq 'Ollama') {
+        [System.Windows.MessageBox]::Show("Multi-turn 'Continue Conversation' requires Claude. Switch AI Provider back to Claude in Settings to keep chatting, or just re-run the one-shot Analyze button (works with Ollama).", "PCGuard") | Out-Null
+        return
+    }
     $ClaudeSecurityChatInput.Text = ""
     $script:ClaudeSecurityBaseText = $ClaudeSecurityText.Text
     $ClaudeSecurityText.Text = "$($script:ClaudeSecurityBaseText)`n`n---`nYou: $msg`n`nClaude: thinking..."
@@ -2508,10 +2571,10 @@ $BtnClaudeSecurityChatSend.Add_Click({
     $messagesSnapshot = $script:ClaudeSecurityMessages
     $sysSnapshot = $script:ClaudeSecuritySystemPrompt
     Start-AiJob -ScriptBlock {
-        param($mp, $apiKey, $model, $msgs, $sys)
+        param($mp, $apiKey, $model, $msgs, $sys, $rootDir)
         Import-Module $mp -Force
-        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys
-    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot) -OnComplete {
+        Invoke-ClaudeChat -ApiKey $apiKey -Model $model -Messages $msgs -SystemPrompt $sys -RootDir $rootDir -Agent 'Security-Chat'
+    } -ArgumentList @($modelPath, $cfg.AnthropicApiKey, $cfg.ClaudeModel, $messagesSnapshot, $sysSnapshot, $RootDir) -OnComplete {
         param($result)
         $BtnClaudeSecurityChatSend.IsEnabled = $true
         $reply = if ($result.Success) { $result.Response } else { "(failed: $($result.Response))" }
@@ -3030,15 +3093,52 @@ function Load-ConfigIntoUI {
     $ChkAutoApproveCleanTemp.IsChecked = $cfg.AutoApproveActions -contains 'CleanTemp'
     $CfgAnthropicApiKey.Password = $cfg.AnthropicApiKey
     $CfgClaudeModel.Text = $cfg.ClaudeModel
+    $CfgAiAgentsProvider.SelectedIndex = if ($cfg.ClaudeAgentsProvider -eq 'Ollama') { 1 } else { 0 }
+    $CfgClaudeTokenLimit.Text = $cfg.ClaudeMonthlyTokenLimit
     Refresh-RuleList
+    Refresh-TokenUsage
 }
+
+function Refresh-TokenUsage {
+    try {
+        $usage = Get-ClaudeTokenUsageSummary -RootDir $RootDir
+        $TokenUsageTodayText.Text = "{0:N0} tokens" -f $usage.TodayTokens
+        $TokenUsageMonthText.Text = "{0:N0} tokens" -f $usage.MonthTokens
+        $TokenUsageTotalText.Text = "{0:N0} tokens ({1} call(s))" -f $usage.TotalTokens, $usage.CallCount
+    } catch {
+        $TokenUsageTodayText.Text = "0 tokens"
+        $TokenUsageMonthText.Text = "0 tokens"
+        $TokenUsageTotalText.Text = "0 tokens (0 calls)"
+    }
+}
+
+$BtnRefreshTokenUsage.Add_Click({ Refresh-TokenUsage })
 
 $BtnSaveClaudeKey.Add_Click({
     $cfg = Get-PCGuardConfig -RootDir $RootDir
     $cfg.AnthropicApiKey = $CfgAnthropicApiKey.Password
     $cfg.ClaudeModel = $CfgClaudeModel.Text
+    $cfg.ClaudeAgentsProvider = if ($CfgAiAgentsProvider.SelectedIndex -eq 1) { 'Ollama' } else { 'Claude' }
     Save-PCGuardConfig -RootDir $RootDir -Config $cfg
-    $ClaudeKeyStatusText.Text = if ($cfg.AnthropicApiKey) { "Saved at $(Get-Date -Format 'HH:mm:ss')." } else { "Cleared - Claude agents will show an error until a key is added." }
+    $ClaudeKeyStatusText.Text = if ($cfg.AnthropicApiKey) { "Saved at $(Get-Date -Format 'HH:mm:ss'). Provider: $($cfg.ClaudeAgentsProvider)." } else { "Cleared - Claude agents will show an error until a key is added, unless you switch the provider to Ollama above. Provider: $($cfg.ClaudeAgentsProvider)." }
+})
+
+$BtnClearClaudeKey.Add_Click({
+    $CfgAnthropicApiKey.Password = ''
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $cfg.AnthropicApiKey = ''
+    Save-PCGuardConfig -RootDir $RootDir -Config $cfg
+    $ClaudeKeyStatusText.Text = "API key cleared at $(Get-Date -Format 'HH:mm:ss'). Add a new one and Save, or switch the provider to Ollama above."
+})
+
+$BtnSaveTokenLimit.Add_Click({
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $parsed = 0
+    [void][int]::TryParse($CfgClaudeTokenLimit.Text, [ref]$parsed)
+    $cfg.ClaudeMonthlyTokenLimit = [math]::Max(0, $parsed)
+    Save-PCGuardConfig -RootDir $RootDir -Config $cfg
+    $CfgClaudeTokenLimit.Text = $cfg.ClaudeMonthlyTokenLimit
+    $ClaudeKeyStatusText.Text = if ($cfg.ClaudeMonthlyTokenLimit -gt 0) { "Monthly token limit set to $($cfg.ClaudeMonthlyTokenLimit)." } else { "Monthly token limit removed (unlimited)." }
 })
 
 function Refresh-RuleList {

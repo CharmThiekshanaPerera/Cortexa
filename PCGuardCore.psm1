@@ -190,6 +190,8 @@ function Get-PCGuardConfig {
         AiModel                  = 'qwen2.5:3b'
         AnthropicApiKey          = ''
         ClaudeModel              = 'claude-sonnet-5-5'
+        ClaudeAgentsProvider     = 'Claude'
+        ClaudeMonthlyTokenLimit  = 0
         CustomRules              = @()
         AutoApproveActions       = @()
     }
@@ -1021,10 +1023,18 @@ function Invoke-ClaudeGenerate {
         [string]$Model = 'claude-sonnet-5-5',
         [string]$Prompt,
         [string]$SystemPrompt = '',
-        [int]$MaxTokens = 1024
+        [int]$MaxTokens = 1024,
+        [string]$RootDir = '',
+        [string]$Agent = ''
     )
     if (-not $ApiKey) {
         return [PSCustomObject]@{ Success = $false; Response = 'No Anthropic API key configured. Add one in Settings.'; Prompt = $Prompt; SystemPrompt = $SystemPrompt }
+    }
+    if ($RootDir) {
+        $limitCheck = Test-ClaudeTokenLimit -RootDir $RootDir
+        if ($limitCheck.Exceeded) {
+            return [PSCustomObject]@{ Success = $false; Response = $limitCheck.Message; Prompt = $Prompt; SystemPrompt = $SystemPrompt }
+        }
     }
     try {
         $body = @{
@@ -1040,7 +1050,10 @@ function Invoke-ClaudeGenerate {
         }
         $result = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/messages' -Method Post -Headers $headers -Body $body -TimeoutSec 60 -ErrorAction Stop
         $text = ($result.content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text
-        [PSCustomObject]@{ Success = $true; Response = $text; Prompt = $Prompt; SystemPrompt = $SystemPrompt }
+        $inTokens = if ($result.usage) { [int]$result.usage.input_tokens } else { 0 }
+        $outTokens = if ($result.usage) { [int]$result.usage.output_tokens } else { 0 }
+        if ($RootDir) { try { Add-ClaudeTokenUsageSample -RootDir $RootDir -Model $Model -InputTokens $inTokens -OutputTokens $outTokens -Agent $Agent } catch {} }
+        [PSCustomObject]@{ Success = $true; Response = $text; Prompt = $Prompt; SystemPrompt = $SystemPrompt; InputTokens = $inTokens; OutputTokens = $outTokens }
     } catch {
         $msg = $_.Exception.Message
         try {
@@ -1062,10 +1075,18 @@ function Invoke-ClaudeChat {
         [string]$Model = 'claude-sonnet-5-5',
         [array]$Messages,
         [string]$SystemPrompt = '',
-        [int]$MaxTokens = 1024
+        [int]$MaxTokens = 1024,
+        [string]$RootDir = '',
+        [string]$Agent = ''
     )
     if (-not $ApiKey) {
         return [PSCustomObject]@{ Success = $false; Response = 'No Anthropic API key configured. Add one in Settings.' }
+    }
+    if ($RootDir) {
+        $limitCheck = Test-ClaudeTokenLimit -RootDir $RootDir
+        if ($limitCheck.Exceeded) {
+            return [PSCustomObject]@{ Success = $false; Response = $limitCheck.Message }
+        }
     }
     try {
         $body = @{
@@ -1081,7 +1102,10 @@ function Invoke-ClaudeChat {
         }
         $result = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/messages' -Method Post -Headers $headers -Body $body -TimeoutSec 60 -ErrorAction Stop
         $text = ($result.content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text
-        [PSCustomObject]@{ Success = $true; Response = $text }
+        $inTokens = if ($result.usage) { [int]$result.usage.input_tokens } else { 0 }
+        $outTokens = if ($result.usage) { [int]$result.usage.output_tokens } else { 0 }
+        if ($RootDir) { try { Add-ClaudeTokenUsageSample -RootDir $RootDir -Model $Model -InputTokens $inTokens -OutputTokens $outTokens -Agent $Agent } catch {} }
+        [PSCustomObject]@{ Success = $true; Response = $text; InputTokens = $inTokens; OutputTokens = $outTokens }
     } catch {
         $msg = $_.Exception.Message
         try {
@@ -1092,11 +1116,61 @@ function Invoke-ClaudeChat {
     }
 }
 
+function Add-ClaudeTokenUsageSample {
+    # Logs one Claude API call's token cost, persisted via the same
+    # JSON-lines pattern as the other history logs - this is what powers
+    # the Settings tab's "tokens used" display and the monthly limit check.
+    param([string]$RootDir, [string]$Model, [int]$InputTokens = 0, [int]$OutputTokens = 0, [string]$Agent = '')
+    $sample = [PSCustomObject]@{
+        Timestamp    = Get-Date
+        Model        = $Model
+        Agent        = $Agent
+        InputTokens  = $InputTokens
+        OutputTokens = $OutputTokens
+        TotalTokens  = $InputTokens + $OutputTokens
+    }
+    Add-JsonHistorySample -RootDir $RootDir -FileName 'claude_token_usage.log' -Sample $sample
+}
+
+function Get-ClaudeTokenUsageSummary {
+    # Rollup for the Settings tab: today / this calendar month / all-time.
+    param([string]$RootDir)
+    $all = @(Get-JsonHistory -RootDir $RootDir -FileName 'claude_token_usage.log' -MaxPoints 100000)
+    $todayStart = (Get-Date).Date
+    $monthStart = Get-Date -Day 1 -Hour 0 -Minute 0 -Second 0 -Millisecond 0
+    $parsed = @($all | ForEach-Object { try { $_.Timestamp = [datetime]$_.Timestamp; $_ } catch {} })
+    $todayRows = @($parsed | Where-Object { $_.Timestamp -ge $todayStart })
+    $monthRows = @($parsed | Where-Object { $_.Timestamp -ge $monthStart })
+
+    [PSCustomObject]@{
+        CallCount   = $parsed.Count
+        TotalTokens = [int](($parsed | Measure-Object TotalTokens -Sum).Sum)
+        TodayTokens = [int](($todayRows | Measure-Object TotalTokens -Sum).Sum)
+        MonthTokens = [int](($monthRows | Measure-Object TotalTokens -Sum).Sum)
+    }
+}
+
+function Test-ClaudeTokenLimit {
+    # Checked before every Claude call that supplies -RootDir. Reads the
+    # configured limit itself (rather than requiring every caller to thread
+    # it through) so a single Settings change takes effect everywhere at
+    # once. 0 means unlimited - the default, since not everyone wants a cap.
+    param([string]$RootDir)
+    $cfg = Get-PCGuardConfig -RootDir $RootDir
+    $limit = [int]$cfg.ClaudeMonthlyTokenLimit
+    if ($limit -le 0) { return [PSCustomObject]@{ Exceeded = $false; Message = '' } }
+    $usage = Get-ClaudeTokenUsageSummary -RootDir $RootDir
+    if ($usage.MonthTokens -ge $limit) {
+        return [PSCustomObject]@{ Exceeded = $true; Message = "Monthly Claude token limit reached ($($usage.MonthTokens) / $limit tokens used this calendar month). Raise the limit in Settings, or switch AI Provider to Ollama (local, no limit) to keep using these agents." }
+    }
+    return [PSCustomObject]@{ Exceeded = $false; Message = '' }
+}
+
 function Invoke-ClaudeNetworkAnalysis {
     # Cortexa's "Network Monitor" agent - reviews live connections/adapters
     # for anything worth a second look. Advisory only: it reports, it never
     # blocks a connection or changes firewall/network settings.
-    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir)
+    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir, [string]$Provider = 'Claude', [string]$OllamaModel)
     $net = Get-NetworkStats
     $conns = @(Get-ActiveConnections -Top 40)
     $adapterLines = ($net.Adapters | ForEach-Object { "$($_.Name): sent $($_.SentMB) MB, received $($_.ReceivedMB) MB" }) -join "`n"
@@ -1116,7 +1190,12 @@ function Invoke-ClaudeNetworkAnalysis {
 
     $prompt = "Network adapters (totals since last reset):`n$adapterLines`n`n$statsLine`n$trendLine`n`nActive connections (up to 40):`n$connLines`n`nAnalyze this network snapshot, including whether the trend shows anything building up over time."
     $sys = "You are Cortexa's network monitoring agent. Review the provided snapshot (adapters, active connections, realtime stats, and the recent connection-count trend) and flag anything unusual or worth the user's attention - e.g. unexpected remote connections, unfamiliar processes talking to the network, high-traffic adapters, or a connection count that's steadily climbing rather than stable. Be concise, use a short bullet list. If everything looks ordinary, say so plainly rather than inventing concerns. You cannot block, close, or change any connection or setting - only report findings for the user to act on themselves."
-    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
+
+    if ($Provider -eq 'Ollama') {
+        $r = Invoke-OllamaGenerate -Model $OllamaModel -Prompt $prompt -SystemPrompt $sys
+        return [PSCustomObject]@{ Success = $r.Success; Response = $r.Response; Prompt = $prompt; SystemPrompt = $sys }
+    }
+    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024 -RootDir $RootDir -Agent 'Network'
 }
 
 function Invoke-ClaudeStorageAnalysis {
@@ -1124,7 +1203,7 @@ function Invoke-ClaudeStorageAnalysis {
     # biggest installed apps (and whether they're actually used) into one
     # prioritized cleanup plan. Advisory only: recommends, never deletes or
     # uninstalls anything itself.
-    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir)
+    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir, [string]$Provider = 'Claude', [string]$OllamaModel)
     $health = Get-SystemHealth -TopProcessCount 1
     $diskLines = ($health.Disks | ForEach-Object { "$($_.Drive) $($_.FreePercent)% free ($($_.FreeGB) GB of $($_.SizeGB) GB)" }) -join "`n"
     $bigApps = @(Get-CombinedAppsSummary -RootDir $RootDir -SortBy 'Size' -Top 12)
@@ -1139,7 +1218,12 @@ function Invoke-ClaudeStorageAnalysis {
 
     $prompt = "Disk space:`n$diskLines`n`n$statsLine`n$trendLine`n`nBiggest installed apps (with usage status):`n$appLines`n`n$eventLines`n`nGive a short, prioritized storage cleanup plan, noting any trend or recent install/uninstall activity worth flagging."
     $sys = "You are Cortexa's storage management agent. Given disk space, realtime app stats, a trend of unused-app disk usage over time, recent install/uninstall activity, and the biggest installed apps with whether each is actually used, produce a short, prioritized cleanup plan - what to consider removing first and why, focusing on big-and-unused items over big-and-used ones. Mention if the unused-app trend is growing or a newly installed app is worth noting. Be concise, use a short list. You cannot delete or uninstall anything yourself - only recommend; the user acts via Cortexa's Apps & Features or Disk Analysis tools."
-    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
+
+    if ($Provider -eq 'Ollama') {
+        $r = Invoke-OllamaGenerate -Model $OllamaModel -Prompt $prompt -SystemPrompt $sys
+        return [PSCustomObject]@{ Success = $r.Success; Response = $r.Response; Prompt = $prompt; SystemPrompt = $sys }
+    }
+    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024 -RootDir $RootDir -Agent 'Storage'
 }
 
 function Get-ListeningServices {
@@ -1414,7 +1498,7 @@ function Invoke-ClaudeSecurityAnalysis {
     # plausible-looking but wrong CVE number) - it sticks to configuration
     # risks actually visible in the data given. Advisory only: it cannot
     # change any setting itself.
-    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5')
+    param([string]$ApiKey, [string]$Model = 'claude-sonnet-5-5', [string]$RootDir, [string]$Provider = 'Claude', [string]$OllamaModel)
     $status = Get-SecurityStatus
     $diskHealth = @(Get-DiskHealth)
     $listening = Get-ListeningServices -Top 100
@@ -1432,7 +1516,12 @@ function Invoke-ClaudeSecurityAnalysis {
 
     $prompt = "Security snapshot:`nFirewall profiles: $firewallLine`n$defenderLine`nBitLocker: $bitlockerLine`nDevices with driver errors: $pnpLine`nDisk health: $diskHealthLine`n`n$statsLine`n`nRecent security events (last 24h, most recent first):`n$eventLines`n`nServices currently listening for network connections:`n$listenLines`n`nReview this for security vulnerabilities, misconfigurations, and any suspicious patterns in the event log (e.g. repeated failed logons could indicate a brute-force attempt)."
     $sys = "You are Cortexa's security monitoring agent. Review firewall, antivirus, encryption, listening-services configuration, and the recent Windows security event log for weaknesses or suspicious activity - e.g. a firewall profile disabled, real-time protection off, stale virus signatures, BitLocker not enabled, a service listening on all interfaces (0.0.0.0 or :::) that should be localhost-only, or a cluster of failed logon attempts that could indicate a brute-force attempt. You do NOT have access to live CVE databases - never invent specific CVE numbers or claim knowledge of unpatched software vulnerabilities; stick to configuration-level risks and event patterns actually visible in the data given. Be concise, use a short bullet list prioritized by severity. If everything looks fine, say so plainly rather than inventing concerns. You cannot change any setting yourself - only report and recommend."
-    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024
+
+    if ($Provider -eq 'Ollama') {
+        $r = Invoke-OllamaGenerate -Model $OllamaModel -Prompt $prompt -SystemPrompt $sys
+        return [PSCustomObject]@{ Success = $r.Success; Response = $r.Response; Prompt = $prompt; SystemPrompt = $sys }
+    }
+    Invoke-ClaudeGenerate -ApiKey $ApiKey -Model $Model -Prompt $prompt -SystemPrompt $sys -MaxTokens 1024 -RootDir $RootDir -Agent 'Security'
 }
 
 function Write-AiActionLog {
@@ -1851,4 +1940,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot, Add-SecurityHistorySample, Get-SecurityHistory, Invoke-LogBackup, Add-JsonHistorySample, Get-JsonHistory, Get-NetworkMonitorStats, Get-AppUsageStatsSnapshot, Update-AppInstallBaseline, Get-AppInstallEventLog
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot, Add-SecurityHistorySample, Get-SecurityHistory, Invoke-LogBackup, Add-JsonHistorySample, Get-JsonHistory, Get-NetworkMonitorStats, Get-AppUsageStatsSnapshot, Update-AppInstallBaseline, Get-AppInstallEventLog, Add-ClaudeTokenUsageSample, Get-ClaudeTokenUsageSummary, Test-ClaudeTokenLimit
