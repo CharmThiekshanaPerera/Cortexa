@@ -841,7 +841,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
                         <Border Background="{StaticResource CardAltBrush}" CornerRadius="8" Height="80">
                             <Canvas x:Name="SecurityTrendCanvas" Background="Transparent" ClipToBounds="True"/>
                         </Border>
-                        <TextBlock Text="This trend builds live from each refresh while Cortexa is open (not a stored history yet) - turn on auto-refresh above to watch it fill in." Style="{StaticResource MutedText}" Margin="2,8,0,0" TextWrapping="Wrap"/>
+                        <TextBlock Text="Persisted history: every refresh is saved to logs\security_history.log and survives restarts (last 60 samples shown). The whole logs folder is also backed up to logs\backups\ every 2 days automatically. Turn on auto-refresh above to watch it fill in live." Style="{StaticResource MutedText}" Margin="2,8,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
 
@@ -2265,8 +2265,14 @@ function Refresh-SecurityTab {
     $DefenderDetectionsText.Text = $stats.DefenderDetections
     $NewServicesText.Text = $stats.NewServices
 
-    Add-RollingPoint -List $script:LiveFailedLogons -Value $stats.FailedLogons
-    Add-RollingPoint -List $script:LiveListeningPorts -Value $stats.ListeningPorts
+    try { Add-SecurityHistorySample -RootDir $RootDir -Stats $stats } catch {}
+    $secHistory = @(Get-SecurityHistory -RootDir $RootDir -MaxPoints 60)
+    $script:LiveFailedLogons.Clear()
+    $script:LiveListeningPorts.Clear()
+    foreach ($p in $secHistory) {
+        Add-RollingPoint -List $script:LiveFailedLogons -Value $p.FailedLogons -MaxLen 60
+        Add-RollingPoint -List $script:LiveListeningPorts -Value $p.ListeningPorts -MaxLen 60
+    }
     Draw-Sparkline -Canvas $SecurityTrendCanvas -Series @($script:LiveFailedLogons, $script:LiveListeningPorts) -Colors @('#ef4444', '#22d3ee')
 
     $events = @(Get-SecurityEventLog -Hours 24 -Top 40)
@@ -2931,6 +2937,7 @@ $BtnImportSettings.Add_Click({
 $BtnOpenStartup.Add_Click({ Start-Process "ms-settings:startupapps" })
 
 # ---------- Initial load ----------
+try { Invoke-LogBackup -RootDir $RootDir | Out-Null } catch {}
 Refresh-Dashboard
 Refresh-Events
 Refresh-ProcessList

@@ -2,6 +2,13 @@
 
 All notable changes to Cortexa, in the order they were built.
 
+## v1.6.3 — 2026-11-14
+
+### Added
+- **Persisted security history**: every Security tab refresh now appends a stats snapshot to `logs\security_history.log`, so the trend chart survives app restarts instead of resetting to empty every launch (loads the last 60 saved points). The background watchdog also samples this every 15 minutes, so history keeps building even when the GUI is closed.
+- **Automatic logs backup every 2 days**: the whole `logs\` folder (security history, watchdog logs, app usage, AI action audit log) gets zipped into `logs\backups\` on a 2-day cadence - checked on every watchdog run and app launch, but a no-op until 2 days have actually passed (marker-file gated, same pattern as the existing daily health report). Keeps the last 20 backup zips, oldest pruned automatically.
+- New core functions `Add-SecurityHistorySample`, `Get-SecurityHistory`, `Invoke-LogBackup`.
+
 ## v1.6.2 — 2026-11-14
 
 ### Added

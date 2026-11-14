@@ -23,7 +23,7 @@ The app requests administrator privileges via a UAC prompt on every launch (need
 | **Network** | Live download/upload sparkline, per-adapter totals, active connections (netstat-style), traffic history |
 | **Tasks** | Windows Scheduled Tasks browser with Enable/Disable |
 | **Startup** | Registry Run-key + Startup-folder items, with reversible Enable/Disable (backed up before disabling) and AI Review |
-| **Security** | Windows Defender / Firewall / BitLocker status, disk health (SMART), devices reporting driver errors, listening services (attack surface) with Quick Access shortcuts to Firewall/BitLocker/Device Manager/Windows Security, plus realtime monitoring: 24h stats tiles, a live trend chart, and a security event log (logons, account/firewall/Defender changes, new services) with optional 15s auto-refresh |
+| **Security** | Windows Defender / Firewall / BitLocker status, disk health (SMART), devices reporting driver errors, listening services (attack surface) with Quick Access shortcuts to Firewall/BitLocker/Device Manager/Windows Security, plus realtime monitoring: 24h stats tiles, a trend chart backed by persisted history (survives restarts), and a security event log (logons, account/firewall/Defender changes, new services) with optional 15s auto-refresh |
 | **App Usage** | Every app in one list - installed programs plus anything tracked running, each with a usage status (used/not used) and on-demand real disk size, sortable by size or usage time to spot big unused apps worth uninstalling |
 | **History** | Trend chart (RAM/CPU/Disk free %) built from the background watchdog's logged scans |
 | **AI Agent** | Chat with a local Ollama model about your system, run a full analysis with clickable suggested-action chips |
@@ -70,7 +70,8 @@ PCGuard/
   PCGuard.bat             # launcher (hides the console window)
   cortexa.ico             # app icon
   config.json             # user settings (created on first Save Settings)
-  logs/                   # watchdog's monthly log files
+  logs/                   # watchdog's monthly log files, security_history.log
+  logs/backups/           # whole logs/ folder zipped here every 2 days (auto, 20 kept)
   Reports/                # daily auto-generated HTML health reports + battery reports
   DisabledStartupItems/   # backups of disabled startup items (created on first disable)
 ```

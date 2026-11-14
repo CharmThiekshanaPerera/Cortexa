@@ -1182,8 +1182,8 @@ function Get-SecurityEventLog {
 
 function Get-SecurityStatsSnapshot {
     # Rollup counts for the Security tab's stat tiles and trend chart - one
-    # snapshot per refresh, which the GUI appends to a rolling in-memory
-    # series to build the "realtime" trend without needing its own log file.
+    # snapshot per refresh. Persisted via Add-SecurityHistorySample so the
+    # trend survives app restarts instead of resetting every launch.
     param([int]$Hours = 24)
     $status = Get-SecurityStatus
     $listening = @(Get-ListeningServices -Top 100)
@@ -1200,6 +1200,70 @@ function Get-SecurityStatsSnapshot {
         FirewallProfilesOn    = @($status.Firewall | Where-Object { $_.Enabled }).Count
         FirewallProfilesTotal = $status.Firewall.Count
         BitLockerProtected    = @($status.BitLocker | Where-Object { $_.ProtectionStatus -eq 'On' }).Count
+    }
+}
+
+function Add-SecurityHistorySample {
+    # Appends one security stats snapshot as a JSON line, so the Security
+    # tab's trend chart has a real persisted history across restarts
+    # instead of resetting to empty every time the app is relaunched.
+    param([string]$RootDir, [PSCustomObject]$Stats)
+    $logDir = Join-Path $RootDir 'logs'
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+    $logFile = Join-Path $logDir 'security_history.log'
+    Add-Content -Path $logFile -Value ($Stats | ConvertTo-Json -Compress)
+}
+
+function Get-SecurityHistory {
+    # Reads back the persisted security snapshots (oldest first) for the
+    # trend chart. Malformed lines (e.g. from an interrupted write) are
+    # skipped rather than failing the whole read.
+    param([string]$RootDir, [int]$MaxPoints = 60)
+    $logFile = Join-Path $RootDir 'logs\security_history.log'
+    if (-not (Test-Path $logFile)) { return @() }
+    $lines = @(Get-Content $logFile -Tail 1000 -ErrorAction SilentlyContinue)
+    $points = @()
+    foreach ($line in $lines) {
+        try { $points += ($line | ConvertFrom-Json) } catch {}
+    }
+    @($points | Select-Object -Last $MaxPoints)
+}
+
+function Invoke-LogBackup {
+    # Zips everything in logs/ (security history, watchdog logs, app usage,
+    # AI action audit log) into logs/backups/ every 2 days, so history
+    # survives even if an individual log file is later rotated or trimmed.
+    # Marker-file gated like the daily health report in PCGuard.ps1, just
+    # checked against a 2-day-old timestamp instead of "today's date".
+    # Cheap to call on every watchdog run / app launch - it's a no-op
+    # until 2 days have actually passed.
+    param([string]$RootDir, [int]$IntervalDays = 2, [int]$RetentionCount = 20)
+    $logDir = Join-Path $RootDir 'logs'
+    if (-not (Test-Path $logDir)) { return $null }
+    $backupDir = Join-Path $logDir 'backups'
+    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+
+    $markerPath = Join-Path $backupDir '.last_backup'
+    $lastBackup = $null
+    if (Test-Path $markerPath) {
+        try { $lastBackup = [datetime](Get-Content $markerPath -Raw -ErrorAction Stop).Trim() } catch {}
+    }
+    if ($lastBackup -and ((Get-Date) - $lastBackup).TotalDays -lt $IntervalDays) { return $null }
+
+    try {
+        $filesToZip = @(Get-ChildItem $logDir -File -ErrorAction SilentlyContinue)
+        if ($filesToZip.Count -eq 0) { return $null }
+        $zipPath = Join-Path $backupDir ("logs_backup_{0:yyyyMMdd_HHmmss}.zip" -f (Get-Date))
+        Compress-Archive -Path $filesToZip.FullName -DestinationPath $zipPath -Force -ErrorAction Stop
+        (Get-Date).ToString('o') | Set-Content -Path $markerPath
+
+        Get-ChildItem $backupDir -Filter 'logs_backup_*.zip' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -Skip $RetentionCount |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+        return $zipPath
+    } catch {
+        return $null
     }
 }
 
@@ -1649,4 +1713,4 @@ function Reset-AppUsageStats {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot
+Export-ModuleMember -Function Get-SystemHealth, Invoke-SafeCleanup, Test-WatchdogInstalled, Install-Watchdog, Uninstall-Watchdog, Get-RecentAlerts, Get-HealthHistory, Get-TopFolders, Get-WslDockerInfo, Invoke-WslShutdown, Get-PCGuardConfig, Save-PCGuardConfig, Export-HealthReport, Get-NetworkStats, Get-ActiveConnections, Get-NetworkHistory, Get-SystemInfo, Get-DiskIoStats, Get-RecentSystemEvents, Get-ScheduledTasksList, Set-ScheduledTaskState, Get-ProcessesDetailed, Stop-ProcessTree, Set-ProcessPriority, Get-ProcessFilePath, Invoke-FreeUpRam, Invoke-StopUnwantedProcesses, Invoke-CreateRestorePoint, Get-StartupItemsDetailed, Disable-StartupItem, Enable-StartupItem, Get-SecurityStatus, Get-DiskHealth, Get-BatteryHealthReport, Get-LargestFiles, Export-PCGuardSettings, Import-PCGuardSettings, Send-WebhookAlert, Test-OllamaAvailable, Start-OllamaServer, Invoke-OllamaGenerate, Get-AiSystemContext, Invoke-AiSystemAnalysis, Invoke-AiChat, Get-AiSuggestedActions, Invoke-AiExplainProcess, Invoke-AiReviewStartupItems, Invoke-AiParseCommand, Get-AiParsedCommand, Invoke-OllamaPullModel, Invoke-OllamaDeleteModel, Write-AiActionLog, Get-AiActionLog, Get-AiHistoricalBaseline, Invoke-AiExplainAlert, Invoke-AiParseRule, Get-AiParsedRule, Add-CustomRule, Remove-CustomRule, Get-CustomRuleViolations, Get-AutoApproveEligibleActions, Add-AppUsageSample, Get-AppUsageSummary, Get-AppSizeOnDisk, Reset-AppUsageStats, Get-FolderSizeMB, Get-InstalledPrograms, Get-UnusedAppsSummary, Get-CombinedAppsSummary, Get-UserAssistLastRunData, Invoke-AiAppDecision, Invoke-ClaudeGenerate, Invoke-ClaudeNetworkAnalysis, Invoke-ClaudeStorageAnalysis, Invoke-ClaudeChat, Invoke-ClaudeSecurityAnalysis, Get-ListeningServices, Get-SecurityEventLog, Get-SecurityStatsSnapshot, Add-SecurityHistorySample, Get-SecurityHistory, Invoke-LogBackup

@@ -125,3 +125,15 @@ if (-not (Test-Path $dailyMarker)) {
         Where-Object { $_.Name -match '^(PCGuard-Report_|daily_)' -and $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
+
+# Persist a security stats snapshot each run, and back up the whole logs
+# folder every 2 days (both are no-ops when not yet due).
+try {
+    $secStats = Get-SecurityStatsSnapshot
+    Add-SecurityHistorySample -RootDir $RootDir -Stats $secStats
+} catch { Write-Log "Security history sample failed: $_" }
+
+try {
+    $backupZip = Invoke-LogBackup -RootDir $RootDir
+    if ($backupZip) { Write-Log "Logs backed up to: $backupZip" }
+} catch { Write-Log "Log backup failed: $_" }
